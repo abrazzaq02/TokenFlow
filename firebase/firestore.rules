@@ -1,0 +1,20 @@
+rules_version = '2';
+service cloud.firestore {
+ match /databases/{database}/documents {
+  function signedIn() { return request.auth != null; }
+  function profile() { return get(/databases/$(database)/documents/users/$(request.auth.uid)).data; }
+  function staffFor(dept) {
+   return signedIn() && exists(/databases/$(database)/documents/users/$(request.auth.uid))
+    && profile().isActive == true
+    && profile().role in ['admin','staff']
+    && ('*' in profile().departmentIds || dept in profile().departmentIds);
+  }
+  match /public_queue/summary { allow read: if true; allow write: if false; }
+  match /tokens/{id} {
+   allow read: if signedIn() && (resource.data.ownerUid == request.auth.uid || staffFor(resource.data.departmentId));
+   allow write: if false;
+  }
+  match /users/{uid} { allow read: if signedIn() && request.auth.uid == uid; allow write: if false; }
+  match /{document=**} { allow read, write: if false; }
+ }
+}

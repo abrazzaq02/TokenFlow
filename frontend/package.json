@@ -1,0 +1,27 @@
+{
+  "name": "tokenflow",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "vite --host 0.0.0.0",
+    "build": "vite build",
+    "preview": "vite preview",
+    "build:showcase": "vite build --config vite.showcase.config.js"
+  },
+  "dependencies": {
+    "react": "19.2.6",
+    "react-dom": "19.2.6",
+    "react-router-dom": "^7.6.0",
+    "lucide-react": "1.31.0",
+    "recharts": "3.8.0",
+    "firebase": "^11.9.0",
+    "qrcode": "^1.5.4"
+  },
+  "devDependencies": {
+    "vite": "8.0.13",
+    "@vitejs/plugin-react": "6.0.2",
+    "tailwindcss": "4.2.1",
+    "@tailwindcss/postcss": "4.2.1"
+  }
+}

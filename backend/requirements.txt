@@ -1,0 +1,7 @@
+Flask>=3.1,<4
+flask-cors>=5,<7
+firebase-admin>=6.6,<8
+python-dotenv>=1,<2
+gunicorn>=23,<24
+pytest>=8,<9
+requests>=2.32,<3

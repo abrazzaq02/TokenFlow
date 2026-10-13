@@ -1,0 +1,18 @@
+services:
+  - type: web
+    name: tokenflow-api
+    runtime: python
+    rootDir: backend
+    buildCommand: pip install -r requirements.txt
+    startCommand: gunicorn 'app:create_app()' --bind 0.0.0.0:$PORT --workers 1
+    envVars:
+      - key: STORE_MODE
+        value: firestore
+      - key: SIMULATION_ENABLED
+        value: 'false'
+      - key: SECRET_KEY
+        generateValue: true
+      - key: FRONTEND_ORIGIN
+        sync: false
+      - key: GOOGLE_APPLICATION_CREDENTIALS
+        value: /etc/secrets/firebase-service-account.json
