@@ -1145,7 +1145,12 @@ function SettingsPage({ notify }) {
   );
 }
 
-createRoot(document.getElementById("root")).render(
+const rootContainer = document.getElementById("root");
+let root = import.meta.hot?.data.root;
+if (!root) root = createRoot(rootContainer);
+if (import.meta.hot) import.meta.hot.data.root = root;
+
+root.render(
   <React.StrictMode>
     <App />
   </React.StrictMode>,
