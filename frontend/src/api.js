@@ -1,7 +1,8 @@
-import { demoRequest } from "./demo";
+import { demoAdminUser, demoRequest } from "./demo";
 
-export const mode = import.meta.env.VITE_APP_MODE || "showcase";
+export const mode = import.meta.env.VITE_APP_MODE || "api";
 export const showcase = mode === "showcase";
+export const demoMode = mode === "demo";
 const apiBase = import.meta.env.VITE_API_URL || "/api";
 const DEMO_ACCOUNTS = "tokenflow-demo-accounts-v1";
 if (sessionStorage.getItem("tf-auth-version") !== "2") {
@@ -10,23 +11,15 @@ if (sessionStorage.getItem("tf-auth-version") !== "2") {
 	localStorage.removeItem("tf-guest-token");
 	sessionStorage.setItem("tf-auth-version", "2");
 }
-let firebaseAuth, firestore, authModule;
-
+let firebaseAuth, firestore, authModule, firebaseReady;
 async function firebase() {
-	if (!firebaseAuth) {
-		const { initializeApp } = await import("firebase/app");
-		authModule = await import("firebase/auth");
-		const { getFirestore } = await import("firebase/firestore");
-		const app = initializeApp({
-			apiKey: import.meta.env.VITE_FIREBASE_API_KEY,
-			authDomain: import.meta.env.VITE_FIREBASE_AUTH_DOMAIN,
-			projectId: import.meta.env.VITE_FIREBASE_PROJECT_ID,
-		});
-		firebaseAuth = authModule.getAuth(app);
-		await firebaseAuth.authStateReady();
-		firestore = getFirestore(app);
-	}
-	return firebaseAuth;
+ if(!firebaseReady)firebaseReady=(async()=>{
+  const {initializeApp,getApps,getApp}=await import('firebase/app');
+  authModule=await import('firebase/auth');const {getFirestore}=await import('firebase/firestore');
+  const app=getApps().length?getApp():initializeApp({apiKey:import.meta.env.VITE_FIREBASE_API_KEY,authDomain:import.meta.env.VITE_FIREBASE_AUTH_DOMAIN,projectId:import.meta.env.VITE_FIREBASE_PROJECT_ID});
+  firebaseAuth=authModule.getAuth(app);await firebaseAuth.authStateReady();firestore=getFirestore(app);return firebaseAuth;
+ })().catch(e=>{firebaseReady=undefined;throw e});
+ return firebaseReady;
 }
 
 function accounts() {
@@ -80,9 +73,7 @@ function saveSession(role, result) {
 		if (result.token) sessionStorage.setItem("tf-admin-token", result.token);
 		if (result.user?.uid) sessionStorage.setItem("tf-demo-admin-uid", result.user.uid);
 		sessionStorage.removeItem("tf-user");
-		localStorage.removeItem("tf-user-token");
-		localStorage.removeItem("tf-demo-uid");
-		localStorage.removeItem("tf-user-name");
+		// Keep customer identity available for an explicit later sign-in; never use it while admin is active.
 		return;
 	}
 	sessionStorage.setItem("tf-user", "yes");
@@ -99,14 +90,14 @@ async function localAuth(path, payload) {
 		headers: { "Content-Type": "application/json" },
 		body: JSON.stringify(payload),
 	});
-	const result = await response.json();
-	if (!response.ok) throw Error(result.message || "Request failed");
+	const result = await parseResponse(response);
+	if (!response.ok) throw requestError(response,result);
 	return result.data;
 }
 
 export async function registerUser(name, email, password) {
 	let result;
-	if (showcase) {
+	if (showcase || demoMode) {
 		const list = accounts();
 		if (list.some((account) => account.email === email.trim().toLowerCase()))
 			throw Error("An account with this email already exists.");
@@ -139,7 +130,7 @@ export async function registerUser(name, email, password) {
 
 export async function loginUser(email, password) {
 	let result;
-	if (showcase) {
+	if (showcase || demoMode) {
 		const account = accounts().find(
 			(item) => item.email === email.trim().toLowerCase() && item.role === "customer",
 		);
@@ -175,7 +166,9 @@ export async function loginUser(email, password) {
 
 export async function loginAdmin(email, password) {
 	let result;
-	if (showcase) {
+	if (demoMode) {
+		result = { user: demoAdminUser(email, password) };
+	} else if (showcase) {
 		const account = accounts().find(
 			(item) => item.email === email.trim().toLowerCase() && item.role === "admin",
 		);
@@ -202,7 +195,7 @@ export async function loginAdmin(email, password) {
 	return result.user;
 }
 
-export async function setupAdmin() {
+export async function setupAdmin(setupKey = "") {
 	let result;
 	if (showcase) {
 		const list = accounts();
@@ -215,17 +208,18 @@ export async function setupAdmin() {
 		localStorage.setItem(DEMO_ACCOUNTS, JSON.stringify(list));
 		result = { email, password, user };
 	} else {
-		result = await localAuth("/auth/admin/setup", {});
+		result = await localAuth("/auth/admin/setup", {setupKey});
 	}
 	saveSession("admin", result);
 	return { email: result.email, password: result.password };
 }
 
 export async function adminSetupAvailable() {
+	if (demoMode) return false;
 	if (showcase) return !accounts().some((account) => account.role === "admin");
 	if (mode === "firebase") return false;
 	const response = await fetch(`${apiBase}/auth/admin/setup-status`);
-	const result = await response.json();
+	const result = await parseResponse(response);
 	return response.ok && result.data.available;
 }
 
@@ -236,9 +230,7 @@ export async function logout(role = "admin") {
 		sessionStorage.removeItem("tf-demo-admin-uid");
 	} else {
 		sessionStorage.removeItem("tf-user");
-		localStorage.removeItem("tf-user-token");
-		localStorage.removeItem("tf-demo-uid");
-		localStorage.removeItem("tf-user-name");
+		// Keep customer identity available for an explicit later sign-in; never use it while admin is active.
 	}
 	if (mode === "firebase") {
 		await firebase();
@@ -260,7 +252,7 @@ async function token() {
 }
 
 export async function api(path, method = "GET", body) {
-	if (showcase)
+	if (showcase || demoMode)
 		return demoRequest(
 			path,
 			method,
@@ -273,14 +265,23 @@ export async function api(path, method = "GET", body) {
 		);
 	const response = await fetch(`${apiBase}${path}`, {
 		method,
+        signal:AbortSignal.timeout(12000),
 		headers: {
 			"Content-Type": "application/json",
 			Authorization: `Bearer ${await token()}`,
 		},
 		...(body ? { body: JSON.stringify(body) } : {}),
 	});
-	const result = await response.json();
-	if (!response.ok) throw Error(result.message || "Request failed");
+	const result = await parseResponse(response);
+	if (!response.ok) throw requestError(response,result);
+	return result.data;
+}
+
+export async function publicApi(path, key = "") {
+	if (showcase || demoMode) return demoRequest(path, "GET", {shareKey:key}, "public");
+	const response = await fetch(`${apiBase}${path}`, { cache: "no-store",headers:key?{Authorization:`Ticket ${key}`}:{},signal:AbortSignal.timeout(12000) });
+	const result = await parseResponse(response);
+	if (!response.ok) throw requestError(response,result);
 	return result.data;
 }
 
@@ -290,3 +291,6 @@ export async function subscribe(refresh) {
 	const { doc, onSnapshot } = await import("firebase/firestore");
 	return onSnapshot(doc(firestore, "public_queue", "summary"), refresh, () => refresh());
 }
+
+async function parseResponse(response){try{return await response.json()}catch{throw Error('The API did not return JSON. Check VITE_API_URL and backend availability.')}}
+function requestError(response,result){const e=Error(result.message||'Request failed');e.status=response.status;if(response.status===401&&!String(result.message).includes('QR')){sessionStorage.removeItem('tf-user');sessionStorage.removeItem('tf-admin');window.dispatchEvent(new Event('tokenflow-auth-expired'))}return e}

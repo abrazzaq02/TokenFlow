@@ -1,189 +1,90 @@
 # TokenFlow
 
-**Less waiting. More living.** A five-service queue platform with a violet/lime Gen Z interface, original vector ticket-arrow logo, customer tickets, QR codes, staff controls, analytics, and a Python queue engine.
+Digital queues for banks, hospitals, police stations and public-service branches. The existing visual design and logo are retained.
 
-## What's included
+## Quick start: shared laptop + phone demo
 
-- Five categories: Banks, Hospitals, Police Stations, Government/NADRA, and Utility Centers. One sample branch per category; two service types per branch.
-- Fifteen seeded counters (two open and one closed for each branch). Counters handle both service types within their branch.
-- Customer token generation, duplicate retry protection, live tracking, cancellation, QR codes, branch check-in QR, and print/save-to-PDF tickets.
-- Staff call-next, start, complete, no-show, rejoin-at-end, and counter controls. Admin add-counter and edit-branch controls; API also supports adding departments.
-- Measured waiting/service averages, completed-by-counter chart, queue history, notifications, and controlled simulated arrivals.
-- Separate browser showcase, local Flask/SQLite demo, and Firebase-connected mode. No silent fallbacks between modes.
+Requires Python 3.10+ with pip. The ZIP includes the built frontend.
+
+```sh
+python -m venv .venv
+# Windows: .venv\Scripts\activate
+# macOS/Linux: source .venv/bin/activate
+pip install -r backend/requirements.txt
+python run_demo.py
+```
+
+Open the printed LAN address on your laptop and phone on the same Wi-Fi. Allow port 5000 through your local firewall if needed. The launcher prints a first-admin setup key when no administrator exists. Choose Admin setup and enter that key; then create a customer account in a separate browser session to demonstrate both roles.
+
+### Live ticket walkthrough
+
+Install the backend dependencies and start the demo from the project root:
+
+```sh
+pip install -r backend/requirements.txt
+python run_demo.py
+```
+
+1. **Admin dashboard:** Open Admin login or account setup, enter the first-admin setup key printed in the server terminal, and create the admin account. Open the dashboard to review Now Serving, counter recommendations, and the simulation comparison.
+2. **Customer:** In a separate browser session, create a customer account, choose a service, and generate a ticket.
+3. **QR scan:** Open the ticket QR code with a phone on the same Wi-Fi and follow its link to the live ticket page.
+4. **Call the ticket:** Return to the admin dashboard and call the waiting ticket. The customer ticket page polls for updates and reflects the call live.
+
+If automatic IP selection is incorrect, set PUBLIC_ORIGIN to http://YOUR-LAPTOP-LAN-IP:5000 before launching. A phone cannot reach the laptop through localhost. The QR contains a link: scan it and tap the link to open live ticket details without signing in.
+
+The local development server is suitable for the demonstration. For internet access, deploy behind HTTPS using a production server. Browser notifications normally require HTTPS (or localhost) and permission; in-app alerts work while the page is open on the LAN demo. Closed-page push delivery is not implemented.
+
+## Existing installation
+
+Back up and retain your existing backend/tokenflow.db and private .env files before copying updated source. This distribution deliberately excludes private environment files, databases, credentials and installed dependencies. It does not erase your original data. Existing ticket records remain compatible. Old unsigned tracking links must be replaced: sign in as the ticket owner and open the ticket to generate a new QR.
+
+## Features
+
+- Customer registration, login, service selection, idempotent digital tickets and cancellation.
+- Admin counter controls, live Now Serving, queue updates and branch instructions.
+- Ticket name, number, issue time, branch, service, position, people ahead, estimate, readable counter and current instructions.
+- Live updates every three seconds, stale-data/error feedback and deduplicated approaching/called alerts. No SMS integration.
+- Signed read-only QR links, 48-hour expiry, owner-controlled replacement/revocation and limited public fields. Anyone with the link can view the ticket name; do not share it publicly. Completed/cancelled tickets become unavailable after 24 hours.
+- Actual waiting/service-time averages with sample counts, completed tokens, queue length and initial prediction error where measured records exist.
+- Recommendations estimate the current queue improvement from opening an available counter. An administrator chooses whether to act; sufficient staff and unchanged service times are assumptions.
+- Repeatable FIFO simulation comparison with identical arrivals/service durations, adjustable counter counts, measured wait reduction and CSV export. Comparison does not alter the live queue. Live simulated-arrival controls are separately available for demonstrations.
 
 ## Architecture
 
-```mermaid
-flowchart TD
- UI[React user and staff portals] --> AUTH[Firebase Authentication]
- UI --> API[Flask API: verified identity and branch permissions]
- API --> ENGINE[Atomic queue engine]
- ENGINE --> STORE[Firestore or local SQLite]
- STORE --> LIVE[Authorized realtime projections]
- LIVE --> UI
-```
+React/Vite customer and admin pages call a Flask JSON API. The default SQLite store applies queue changes transactionally. A shared queue engine calculates positions and estimates from active counters and observed service duration, with configured defaults for new branches. Clients poll the shared API; the browser showcase instead stores state locally and cannot share a queue across devices.
 
-```text
-frontend/
-  src/main.jsx                 user and admin screens
-  src/styles.css               responsive design system
-  src/api.js                   explicit API/Firebase/showcase adapters
-  src/demo.js                  browser-only synthetic showcase
-  src/router-showcase.jsx      offline showcase routing
-  src/qr-showcase.js            independently verified offline QR encoder
-  public/logo.svg              original scalable TokenFlow logo + favicon
-  vite.config.js               normal React build
-  vite.showcase.config.js      offline showcase build
-backend/
-  app.py                       HTTP validation, endpoints, CORS, rate limiting
-  auth.py                      Firebase verification and local demo sessions
-  storage.py                   atomic Firestore and SQLite adapters
-  services/engine.py           deterministic queue and analytics logic
-  services/notifications.py    optional SMS provider adapter
-  tests/                       core and API tests
-  seed.py                      explicit synthetic arrivals
-  create_admin.py              trusted role bootstrap
-firebase/                      deny-by-default rules and index configuration
-render.yaml                    Python deployment blueprint
-vercel.json                    static frontend deployment configuration
-```
+Authentication and queue mutations require an account bearer token. Public tracking requires a separate signed ticket capability carried in the URL fragment and sent to the API in an Authorization header. It grants no queue mutation rights. The signing secret must remain stable across restarts; the local launcher creates backend/.session-secret when SECRET_KEY is unset.
 
-## 1. Run the complete local frontend + backend
+The optional Firebase mode uses Firebase Authentication and Firestore through the backend. Admin roles are provisioned by a trusted operator using backend/create_admin.py. Keep Firebase service-account credentials server-side.
 
-Prerequisites: Node 22.13+ and Python 3.10+; internet access for package installation.
+## Develop and deploy
 
-In terminal 1, from the project root:
-
-```bash
-cd backend
-python -m venv .venv
-# macOS/Linux:
-source .venv/bin/activate
-# Windows PowerShell instead: .venv\Scripts\Activate.ps1
-pip install -r requirements.txt
-cp .env.example .env
-# Windows instead: Copy-Item .env.example .env
-```
-
-Edit `backend/.env`: choose a random `SECRET_KEY`, keep `STORE_MODE=sqlite`, and use `SIMULATION_ENABLED=true` for the demonstration. Generate a key with `python -c "import secrets; print(secrets.token_hex(32))"`. Do not commit `.env`.
-
-```bash
-python seed.py
-python app.py
-```
-
-In terminal 2:
-
-```bash
+```sh
 cd frontend
 npm install
-cp .env.example .env
-# Windows instead: Copy-Item .env.example .env
 npm run dev
-```
-
-Open **http://localhost:5173**. Default `.env.example` uses `VITE_APP_MODE=api` and the Vite proxy routes `/api` to Flask on port 5000. Choose **User** to create an account with your name, email, and password, or log in to an existing account. Choose **Admin** to log in; on a fresh local database, create Admin access once and save the random email/password shown at setup. The generated credentials are displayed only once. User passwords are stored as hashes in SQLite, and each account sees only its own tickets. The old shared demo password and guest session are no longer accepted.
-
-Never expose SQLite/demo-admin mode as a public production service. SQLite mode is a local hackathon alternative, not a substitute for configured Firebase authentication.
-
-## 2. Try the browser-only showcase
-
-Use `VITE_APP_MODE=showcase` (or leave all frontend environment files absent) and run `npm run dev`. The hosted preview uses this mode and stores synthetic demo accounts and data in localStorage. User accounts are local to that browser; Admin setup generates random credentials for the local simulation only. It cannot reach real accounts or records. Reset demo tickets from Settings.
-
-Tickets are limited to this browser. A QR opened on another device will not find browser-local data. The Firebase/API version requires the ticket owner's authenticated session. QR payloads contain only opaque ticket IDs and URLs, not customer names or phone numbers.
-
-## 3. Connect Firebase
-
-1. Create a Firebase project and a Firestore database. Enable Email/Password Authentication for Users and Admins.
-2. Register a web app. Copy its public configuration into the frontend `VITE_FIREBASE_*` variables. Set `VITE_APP_MODE=firebase`.
-3. Generate a server service account and keep its JSON **outside the repository**. Set `GOOGLE_APPLICATION_CREDENTIALS` to that file's absolute path. Never paste its private key into frontend variables.
-4. Set backend `STORE_MODE=firestore`; set `FRONTEND_ORIGIN` to your exact frontend origin. Disable simulation for real service use (`SIMULATION_ENABLED=false`).
-5. Deploy rules/indexes using Firebase CLI: `firebase use YOUR_PROJECT_ID`, then `firebase deploy --only firestore`.
-6. Users can register through the app. Create an Admin user in Firebase Authentication, then run `python create_admin.py --email YOUR_EMAIL` to assign the trusted Admin role. Only trusted operators with server credentials can run this command; client-side Admin setup is intentionally unavailable in Firebase mode.
-7. Start Flask. Open the frontend. The first persisted change initializes the queue aggregate and public summary. To initialize with synthetic data, explicitly enable simulation, run `seed.py`, and turn simulation back off.
-8. Add your frontend domain in Firebase Authentication's authorized domains. Use HTTPS for deployment.
-
-The frontend subscribes to the non-personal Firestore summary revision and re-fetches authorized data from Flask; five-second polling also keeps elapsed-time estimates moving. Direct token projections are owner/staff readable and client write-protected. All writes go through Flask. Guest Firebase identities persist in the browser, so clearing browser data loses access to anonymous tickets; cross-device customer account migration is not included in this MVP.
-
-### Bounded Firestore model
-
-For this hackathon MVP, a single private aggregate document stores authoritative departments, counters, tickets, service records, and a bounded event history. Each mutation reads and updates it transactionally, then writes the public summary and owner-protected token projections in the same transaction. This provides cross-process concurrency protection without half-updated queues.
-
-The dataset is intentionally capped at **250 total tickets**, 20 departments, and 60 counters. Completed tickets count toward the cap. The timestamp fields use server-generated Unix seconds in UTC (not browser time); Firestore `updatedAt` metadata also uses SERVER_TIMESTAMP. This differs from a large production normalized schema intentionally. Before public rollout, partition by branch, archive completed tickets, store service/notification records separately, add distributed rate limiting, and load-test contention. Do not remove caps without revisiting Firestore document and transaction limits.
-
-## Queue behavior
-
-- FIFO by server-issued queue sequence. Human ticket numbers and opaque QR identifiers are distinct.
-- One active ticket per customer per branch; idempotency keys prevent duplicate POST retries.
-- Call-next reserves a free open counter atomically. Start-service records waiting time. Complete records measured service time and releases the counter.
-- Closing a busy counter preserves its customer but stops new assignments.
-- No-show applies to called tickets. Rejoin puts a skipped ticket at the end, with its original displayed ticket number.
-- Waiting estimates simulate each available counter's future workload using the last 30 service durations, or a per-service default. Busy counters use estimated remaining time, with a 30-second minimum when overdue.
-- Zero eligible open counters returns a paused estimate, not zero minutes. This is a routine-service system, not emergency dispatch or clinical triage.
-
-## Notifications and SMS
-
-In-app/browser alerts fire when three or fewer people are ahead. Browser permission is requested only on a click; the page must remain open. Backend event timestamps deduplicate each approach event, and browser session storage prevents repeated display of the same event.
-
-The optional Twilio adapter in `services/notifications.py` handles provider acceptance/failure without invalidating tickets. It is **not wired to automatic sends**: no phone numbers are collected in the MVP and no SMS is sent by the demo. To enable real SMS, integrate validated E.164 phone collection and explicit consent with a durable outbox/deduplication worker and delivery callbacks before calling the adapter. The core app requires no SMS provider or paid service.
-
-## API
-
-All replies are `{success:true,data:...}` or `{success:false,message:...}`. Protected routes use `Authorization: Bearer <ID token>`; identity/role/branch checks are server-side.
-
-| Method | Route | Access |
-| --- | --- | --- |
-| GET | /api/health, /api/departments, /api/queue/:department | Public, non-personal summary |
-| POST | /api/auth/register, /api/auth/login | SQLite demo only |
-| GET, POST | /api/auth/admin/setup-status, /api/auth/admin/setup | SQLite first-Admin bootstrap; setup is one-time |
-| GET | /api/me | Authenticated identity |
-| GET, POST | /api/tokens | Owner's list; create ticket |
-| GET | /api/tokens/:opaqueId | Owner or Admin |
-| POST | /api/tokens/:id/cancel | Owner, waiting only |
-| GET | /api/dashboard, /api/analytics | Admin |
-| POST | /api/counters/:id/open, /close, /next | Admin |
-| POST | /api/queue/next | Admin; counterId body |
-| POST | /api/tokens/:id/start, /complete, /skip, /recall | Admin |
-| POST | /api/departments | Admin; id to edit, omit id to create |
-| POST | /api/counters | Admin; departmentId and name |
-| POST | /api/simulate | Admin + enabled simulation; count 1–10 |
-
-## Tests and validation
-
-```bash
-cd backend
-python -m unittest discover -s tests -p '*stdlib.py' -v
-# With requirements installed:
-python -m pytest -q
-cd ../frontend
 npm run build
-node tests/demo.test.mjs
 ```
 
-Validation performed in the creation environment:
-- 10 standard-library Python queue/storage tests passed, including threaded concurrent writes.
-- Browser showcase build passed using cached dependencies.
-- JavaScript demo-flow tests passed (see tests/demo.test.mjs).
-- Offline QR matrix matched ReportLab's independent version-6/L implementation.
-- Python source compiled successfully.
+Use Node 22+ for Vite 8. The default build writes ../dist and uses /api. For separate frontend/backend deployments, build with VITE_APP_MODE=api and VITE_API_URL=https://YOUR-BACKEND/api. Set backend PUBLIC_ORIGIN to the frontend HTTPS origin and FRONTEND_ORIGIN to the same allowed origin. Configure SECRET_KEY, STORE_MODE, database credentials and ADMIN_SETUP_KEY as appropriate. Set SIMULATION_ENABLED=false for deployments that should not allow simulated arrivals. See the provided environment examples, render.yaml, vercel.json and Firebase configuration; configure actual project identifiers before deployment.
 
-Limitations of that environment: external pip/npm downloads were restricted, so Flask HTTP integration tests and live Firebase integration could not be run. The full normal Firebase build needs the dependencies from package.json. Browser visual QA was unavailable. The published showcase is not a deployed Python backend.
+For local development with separate ports, use frontend/.env with VITE_API_URL=http://localhost:5000/api and set backend PUBLIC_ORIGIN=http://localhost:5173. Cross-device use is easiest with run_demo.py instead.
 
-### Manual demo checklist
+npm run build:showcase creates dist-showcase with browser-local simulated state. This is an explicitly separate demonstration mode, not the multi-device backend application.
 
-1. Create a User account; select Banks → choose service → Generate my ticket. Confirm QR, position, wait, and print layout.
-2. Sign out, then choose Admin. Create and save the temporary Admin credentials on first setup, or log in with existing credentials.
-3. Add five visitors; observe the queue/chart change. Open Counter 03; wait estimates should decrease or remain equal.
-4. Call next → Start service → Complete. Repeat until your ticket is near the front; observe the alert.
-5. Close a busy counter; its current customer must remain assigned. Complete that service; the closed counter must reject call-next.
-6. Mark a called visitor no-show; rejoin; verify they move to the back.
-7. Cancel your own waiting ticket. Verify another owner's ticket is denied in API mode.
-8. Refresh; verify persistence. Test narrow/mobile view, keyboard navigation, and QR scanning.
+For an explicit browser-only demo with simulated queue data, set `VITE_APP_MODE=demo` in `frontend/.env` and restart Vite. Admin sign-in accepts any valid-format email and any non-empty password in this mode, and the header shows a **Demo Mode** badge. The default `api` mode and Firebase mode continue to require real Admin credentials. Never deploy a `demo` build as a production application.
 
-## Deployment
+## Verification
 
-**Frontend / Vercel:** import the repository root; use the supplied vercel.json. Set `VITE_APP_MODE=firebase`, Firebase web configuration, and `VITE_API_URL=https://YOUR_BACKEND/api` before building. Vite embeds configuration at build time. Normal build uses React Router, Firebase SDK, and the qrcode package.
+```sh
+python -m pytest backend/tests -q
+cd frontend
+npm test
+npm run build
+```
 
-**Backend / Render:** use render.yaml or create a Python service with root `backend`, build `pip install -r requirements.txt`, and start `gunicorn 'app:create_app()' --bind 0.0.0.0:$PORT --workers 1`. Upload the service-account JSON as a secret file at `/etc/secrets/firebase-service-account.json`. Set the exact frontend origin. Use Firestore for durable deployed storage. Do not commit credentials.
+Verified in the repair environment: 24 backend tests; frontend queue/upgrade tests; API and showcase production builds. Coverage includes a separate scanner client, QR revocation/expiry/tampering, unauthorized mutations, concurrent duplicate requests, counter races, old ticket records, recommendation scope and deterministic simulation.
 
-**Hosted Sites preview:** static showcase only; Python cannot execute on this static host. Source includes the full Python deployment path above. No real backend/Firebase deployment is claimed.
+Default simulation: 15 simultaneous arrivals, seed 42, five-minute nominal service with 20% variation, 30-minute reporting horizon. One counter averages 33.29 minutes wait; three counters average 9.44 minutes, a 71.6% reduction in this simulated workload. This is not a real-world measured impact or a staffing-cost saving.
+
+Physical phone-camera scanning, visual browser interaction and live Firebase deployment were not verified in this environment. Before presenting, run the LAN demo on the actual laptop and phone, scan a ticket, call it from the admin dashboard and confirm its live update. Keep the application open for alerts.

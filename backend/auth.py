@@ -22,8 +22,8 @@ def credentials(email, password):
 
 def register_user(store, name, email, password):
     name = name.strip() if isinstance(name, str) else ""
-    if not name or len(name) > 80:
-        raise Problem("Name must contain 1 to 80 characters")
+    if not name or len(name) > 60:
+        raise Problem("Name must contain 1 to 60 characters")
     email, password = credentials(email, password)
     user = {"uid": uuid.uuid4().hex, "name": name, "email": email, "role": "customer"}
     store.create_account(

@@ -1,0 +1,18 @@
+import assert from 'node:assert/strict';
+import {demoRequest as api} from '../src/demo.js';
+import {compare} from '../src/simulation.js';
+const map=new Map();globalThis.localStorage={getItem:k=>map.get(k)||null,setItem:(k,v)=>map.set(k,v)};globalThis.window={dispatchEvent:()=>{}};globalThis.location={origin:'https://queue.example.test'};
+await api('/reset','POST');
+const t=await api('/tokens','POST',{departmentId:'bank',service:'Cash & deposits',displayName:'Test visitor',requestId:'upgrades-0001'},'owner');
+assert.equal((await api('/tokens','POST',{departmentId:'bank',service:'Cash & deposits',requestId:'upgrades-0001'},'owner')).id,t.id);
+await assert.rejects(()=>api(`/public/tokens/${t.id}`,'GET',{},'scanner'));
+const link=await api(`/tokens/${t.id}/share`,'POST',{},'owner'),key=new URL(link.url).hash.slice(5);
+let view=await api(`/public/tokens/${t.id}`,'GET',{shareKey:key},'scanner');assert.equal(view.displayName,'Test visitor');assert.equal(view.position,8);assert.equal(view.peopleAhead,7);assert.equal(view.timezone,'Asia/Karachi');assert.ok(view.estimatedTurnTime);
+await assert.rejects(()=>api(`/tokens/${t.id}/cancel`,'POST',{},'intruder'));
+const rec=(await api('/dashboard')).recommendations.find(r=>r.departmentId==='bank');assert.ok(rec.projectedAverageEstimate<rec.currentAverageEstimate);
+await api('/counters/bank-3/open','POST');assert.equal((await api(`/public/tokens/${t.id}`,'GET',{shareKey:key},'scanner')).estimatedWaitMinutes,10);
+const next=await api('/counters/bank-1/next','POST');view=await api(`/public/tokens/${t.id}`,'GET',{shareKey:key},'scanner');assert.equal(view.nowServing[0].tokenNumber,'BNK-001');
+await api(`/tokens/${next.currentTokenId}/start`,'POST');await api('/counters/bank-1/close','POST');await api(`/tokens/${next.currentTokenId}/complete`,'POST');assert.equal((await api('/analytics')).completed,1);
+await api(`/tokens/${t.id}/revoke-share`,'POST',{},'owner');await assert.rejects(()=>api(`/public/tokens/${t.id}`,'GET',{shareKey:key},'scanner'));
+assert.equal(compare({seed:42}).reductionPercent,compare({seed:42}).reductionPercent);const comparison=await api('/simulation/compare','POST',{});assert.ok(comparison.improved.averageWait<comparison.baseline.averageWait);
+console.log('PASS: secure demo QR, owner controls, live serving, recommendations, counter lifecycle, and comparison');

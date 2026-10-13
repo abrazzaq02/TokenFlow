@@ -7,7 +7,8 @@
     "dev": "vite --host 0.0.0.0",
     "build": "vite build",
     "preview": "vite preview",
-    "build:showcase": "vite build --config vite.showcase.config.js"
+    "build:showcase": "vite build --config vite.showcase.config.js",
+    "test": "node tests/demo.test.mjs && node tests/upgrades.test.mjs"
   },
   "dependencies": {
     "react": "19.2.6",

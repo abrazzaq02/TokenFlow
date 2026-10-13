@@ -33,7 +33,7 @@ def average(s,d):
  return mean(rs) if rs else get(s['departments'],d)['duration']
 
 def estimates(s,now=None):
- now=now or time.time(); result={}
+ now=time.time() if now is None else now; result={}
  for d in s['departments']:
   avg=average(s,d['id']); heap=[]
   for c in s['counters']:
@@ -52,23 +52,41 @@ def estimates(s,now=None):
  return result
 
 def token_view(s,t,now=None):
- return {**t,**estimates(s,now).get(t['id'],{'position':0,'estimatedWaitMinutes':0})}
+ view={**t,**estimates(s,now).get(t['id'],{'position':0,'estimatedWaitMinutes':0})}
+ counter=next((c for c in s['counters'] if c['id']==t.get('assignedCounterId')),None)
+ view['counterName']=counter['name'] if counter else None
+ view['notificationState']=t['status']=='waiting' and 0<view['position']<=4 and view['estimatedWaitMinutes'] is not None
+ view['notificationEventId']=f"{t['id']}:{t.get('queueCycle',0)}:{'called' if t['status']=='called' else 'approaching'}"
+ view.pop('smsStatus',None)
+ return view
+
+def public_ticket(s,t,now=None):
+ from .insights import serving,instruction
+ now=time.time() if now is None else now
+ view=token_view(s,t,now);department=get(s['departments'],t['departmentId'])
+ assigned=next((c for c in s['counters'] if c['id']==t.get('assignedCounterId')),None)
+ counter=assigned['name'] if assigned else None
+ waiting=t['status']=='waiting';wait=view['estimatedWaitMinutes']
+ approaching=waiting and 0<view['position']<=4 and wait is not None
+ return {'displayName':t.get('displayName',''),'tokenNumber':t['tokenNumber'],'service':t['service'],'category':department['name'],'branch':department['branch'],'issueTime':t['arrivalTime'],'timezone':department.get('timezone','Asia/Karachi'),'estimatedWaitMinutes':wait if waiting else None,'position':view['position'],'peopleAhead':max(0,view['position']-1) if waiting else 0,'estimatedTurnTime':now+wait*60 if waiting and wait is not None else None,'counterName':counter,'status':t['status'],'notificationState':approaching,'notificationEventId':f"{t['id']}:{t.get('queueCycle',0)}:{'called' if t['status']=='called' else 'approaching'}",'nowServing':serving(s,t['departmentId']),'message':instruction(t['status'],counter,view['position'],wait),'branchInstructions':department.get('instructions',''),'updatedAt':now}
 
 def summary(s,now=None):
+ from .insights import serving
  est=estimates(s,now); ds=[]
  for d in s['departments']:
   ts=[t for t in s['tokens'] if t['departmentId']==d['id']]; cs=[c for c in s['counters'] if c['departmentId']==d['id']]
   waits=[est[t['id']]['estimatedWaitMinutes'] for t in ts if t['status']=='waiting']
-  ds.append({**d,'waiting':sum(t['status']=='waiting' for t in ts),'openCounters':sum(c['isOpen'] for c in cs),'estimatedWait':max((x for x in waits if x is not None),default=0) if any(c['isOpen'] for c in cs) else None})
+  ds.append({**d,'nowServing':serving(s,d['id']),'waiting':sum(t['status']=='waiting' for t in ts),'openCounters':sum(c['isOpen'] for c in cs),'estimatedWait':max((x for x in waits if x is not None),default=0) if any(c['isOpen'] for c in cs) else None})
  return {'departments':ds,'revision':s['revision']}
 
 def analytics(s,ids):
  ts=[t for t in s['tokens'] if '*' in ids or t['departmentId'] in ids]; rs=[r for r in s['records'] if '*' in ids or r['departmentId'] in ids]
- started=[(t['serviceStartTime']-t['arrivalTime'])/60 for t in ts if t.get('serviceStartTime')]
- return dict(issued=len(ts),waiting=sum(t['status']=='waiting' for t in ts),serving=sum(t['status'] in ('called','serving') for t in ts),completed=sum(t['status']=='completed' for t in ts),skipped=sum(t['status']=='skipped' for t in ts),averageWait=round(mean(started),1) if started else 0,averageService=round(mean([r['actualServiceMinutes'] for r in rs]),1) if rs else 0,byCounter=[{'name':c['name'],'id':c['id'],'completed':sum(r['counterId']==c['id'] for r in rs)} for c in s['counters'] if '*' in ids or c['departmentId'] in ids],history=[{'time':e['time'],'waiting':sum(v for k,v in e['byDepartment'].items() if '*' in ids or k in ids)} for e in s['events'][-40:]])
+ started=[(t['serviceStartTime']-t['arrivalTime'])/60 for t in ts if t.get('serviceStartTime') is not None]
+ errors=[abs((t['serviceStartTime']-t['arrivalTime'])/60-t['initialEstimatedWait']) for t in ts if t.get('serviceStartTime') is not None and t.get('initialEstimatedWait') is not None]
+ return dict(waitSampleCount=len(started),serviceSampleCount=len(rs),predictionSampleCount=len(errors),predictionMae=round(mean(errors),2) if errors else None,issued=len(ts),waiting=sum(t['status']=='waiting' for t in ts),serving=sum(t['status'] in ('called','serving') for t in ts),completed=sum(t['status']=='completed' for t in ts),skipped=sum(t['status']=='skipped' for t in ts),averageWait=round(mean(started),1) if started else 0,averageService=round(mean([r['actualServiceMinutes'] for r in rs]),1) if rs else 0,byCounter=[{'name':c['name'],'id':c['id'],'completed':sum(r['counterId']==c['id'] for r in rs)} for c in s['counters'] if '*' in ids or c['departmentId'] in ids],history=[{'time':e['time'],'waiting':sum(v for k,v in e['byDepartment'].items() if '*' in ids or k in ids)} for e in s['events'][-40:]])
 
 def mutate(s,action,p,actor,now=None):
- now=now or time.time(); result=None
+ now=time.time() if now is None else now; result=None
  if action=='create':
   d=get(s['departments'],p.get('departmentId'))
   if not d['active']:raise Problem('This service is unavailable')
@@ -79,11 +97,14 @@ def mutate(s,action,p,actor,now=None):
   if old:return old
   if any(t['ownerUid']==actor['uid'] and t['departmentId']==d['id'] and t['status'] in ('waiting','called','serving') for t in s['tokens']):raise Problem('You already have an active ticket for this branch',409)
   if len(s['tokens'])>=250:raise Problem('Demo capacity reached (250 tickets). Archive/reset the demo before continuing.',409)
-  name=p.get('displayName','').strip()
+  name=p.get('displayName','')
+  if not isinstance(name,str):raise Problem('Name must be text')
+  name=name.strip()
   if len(name)>60:raise Problem('Name must be 60 characters or fewer')
   d['sequence']+=1
-  result=dict(id=uuid.uuid4().hex,ownerUid=actor['uid'],departmentId=d['id'],service=p['service'],displayName=name,tokenNumber=f"{d['prefix']}-{d['sequence']:03}",queueSequence=d['sequence'],requestId=key,status='waiting',arrivalTime=now,serviceStartTime=None,serviceEndTime=None,assignedCounterId=None,notificationState=False,smsStatus='unavailable',createdAt=now,updatedAt=now)
+  result=dict(id=uuid.uuid4().hex,ownerUid=actor['uid'],departmentId=d['id'],service=p['service'],displayName=name,tokenNumber=f"{d['prefix']}-{d['sequence']:03}",queueSequence=d['sequence'],requestId=key,status='waiting',arrivalTime=now,serviceStartTime=None,serviceEndTime=None,assignedCounterId=None,notificationState=False,shareVersion=0,queueCycle=0,createdAt=now,updatedAt=now)
   s['tokens'].append(result)
+  result['initialEstimatedWait']=estimates(s,now)[result['id']]['estimatedWaitMinutes']
  elif action in ('open','close','next'):
   c=get(s['counters'],p.get('counterId'));allowed(actor,c['departmentId'])
   if action!='next': c['isOpen']=action=='open';result=c
@@ -103,7 +124,7 @@ def mutate(s,action,p,actor,now=None):
    allowed(actor,t['departmentId'])
    if action=='recall':
     if t['status']!='skipped':raise Problem('Only skipped tickets may rejoin',409)
-    d=get(s['departments'],t['departmentId']);d['sequence']+=1;t.update(status='waiting',queueSequence=d['sequence'],assignedCounterId=None,notificationState=False)
+    d=get(s['departments'],t['departmentId']);d['sequence']+=1;t.update(status='waiting',queueSequence=d['sequence'],assignedCounterId=None,notificationState=False,queueCycle=t.get('queueCycle',0)+1)
    else:
     c=get(s['counters'],t.get('assignedCounterId'))
     if c['currentTokenId']!=t['id']:raise Problem('Ticket is not assigned to this counter',409)
@@ -112,17 +133,20 @@ def mutate(s,action,p,actor,now=None):
      t.update(status='serving',serviceStartTime=now)
     elif action=='complete':
      if t['status']!='serving':raise Problem('Start service before completing',409)
-     t.update(status='completed',serviceEndTime=now);c['currentTokenId']=None
+     t.update(status='completed',serviceEndTime=now)
+     c['currentTokenId']=None
      s['records'].append(dict(id=uuid.uuid4().hex,tokenId=t['id'],departmentId=t['departmentId'],counterId=c['id'],arrivalTime=t['arrivalTime'],serviceStartTime=t['serviceStartTime'],serviceEndTime=now,actualWaitingMinutes=(t['serviceStartTime']-t['arrivalTime'])/60,actualServiceMinutes=(now-t['serviceStartTime'])/60,finalStatus='completed'))
     elif action=='skip':
      if t['status']!='called':raise Problem('Only called tickets may be marked no-show',409)
-     t['status']='skipped';c['currentTokenId']=None
+     t.update(status='skipped',assignedCounterId=None)
+     c['currentTokenId']=None
   t['updatedAt']=now
  elif action=='department':
   if actor['role']!='admin':raise Problem('Admin access required',403)
-  if not p.get('name') or not p.get('branch'):raise Problem('Name and branch are required')
+  if any(not isinstance(p.get(k),str) or not p[k].strip() for k in ('name','branch')):raise Problem('Name and branch must be non-empty text')
+  if not isinstance(p.get('instructions',''),str) or len(p.get('instructions',''))>500:raise Problem('Instructions must be text of at most 500 characters')
   if p.get('id'):
-   d=get(s['departments'],p['id']);allowed(actor,d['id']);d.update(name=str(p['name'])[:60],branch=str(p['branch'])[:100]);result=d
+   d=get(s['departments'],p['id']);allowed(actor,d['id']);d.update(name=str(p['name'])[:60],branch=p['branch'].strip()[:100],instructions=p.get('instructions',d.get('instructions','')));result=d
   else:
    if actor.get('departmentIds')!=['*']:raise Problem('Global admin required to create a department',403)
    if len(s['departments'])>=20:raise Problem('MVP department capacity reached',409)
@@ -130,9 +154,13 @@ def mutate(s,action,p,actor,now=None):
  elif action=='counter':
   if actor['role']!='admin':raise Problem('Admin access required',403)
   d=get(s['departments'],p.get('departmentId'));allowed(actor,d['id'])
-  if not p.get('name'):raise Problem('Counter name is required')
+  if not isinstance(p.get('name'),str) or not p['name'].strip():raise Problem('Counter name must be non-empty text')
   if len(s['counters'])>=60:raise Problem('MVP counter capacity reached',409)
   result=dict(id=uuid.uuid4().hex,departmentId=d['id'],name=str(p['name'])[:40],isOpen=False,currentTokenId=None);s['counters'].append(result)
+ elif action=='revoke_share':
+  t=get(s['tokens'],p.get('tokenId'))
+  if t['ownerUid']!=actor['uid']:raise Problem('Only the ticket owner may revoke its QR link',403)
+  t['shareVersion']=t.get('shareVersion',0)+1;result=t
  else:raise Problem('Unknown action')
  s['revision']+=1
  for id,e in estimates(s,now).items():

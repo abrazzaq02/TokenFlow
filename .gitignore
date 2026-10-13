@@ -8,3 +8,6 @@ __pycache__/
 *.db-*
 .venv/
 dist/
+.session-secret
+*.sqlite*
+dist-showcase/

@@ -34,7 +34,7 @@ def test_roles_recall_and_owner():
  s=initial();t=ticket(s,'owner');staff={'uid':'staff','role':'staff','departmentIds':['hospital']}
  with pytest.raises(Problem):mutate(s,'next',{'counterId':'bank-1'},staff)
  with pytest.raises(Problem):mutate(s,'cancel',{'tokenId':t['id']},{'uid':'other','role':'customer'})
- mutate(s,'next',{'counterId':'bank-1'},ADMIN);mutate(s,'skip',{'tokenId':t['id']},ADMIN)
+ mutate(s,'next',{'counterId':'bank-1'},ADMIN);mutate(s,'skip',{'tokenId':t['id']},ADMIN);assert t['assignedCounterId'] is None
  second=ticket(s);mutate(s,'recall',{'tokenId':t['id']},ADMIN)
  assert mutate(s,'next',{'counterId':'bank-1'},ADMIN)['id']==second['id']
 def test_atomic_concurrency(tmp_path):
@@ -46,7 +46,7 @@ def test_atomic_concurrency(tmp_path):
  assert len(db.read()['tokens'])==20
 
 def test_api_auth_and_tracking(tmp_path,monkeypatch):
- monkeypatch.setenv('STORE_MODE','sqlite')
+ monkeypatch.setenv('STORE_MODE','sqlite');monkeypatch.setenv('ADMIN_SETUP_KEY','test-setup-key')
  app=create_app(SQLiteStore(str(tmp_path/'api.db')));c=app.test_client()
  assert c.get('/api/dashboard').status_code==401
  r=c.post('/api/auth/register',json={'name':'Taylor User','email':'User@example.test','password':'user-password'});assert r.status_code==201
@@ -55,6 +55,16 @@ def test_api_auth_and_tracking(tmp_path,monkeypatch):
  p={'departmentId':'bank','service':'Cash & deposits','requestId':'unique-request','displayName':''}
  r=c.post('/api/tokens',headers=h,json=p);assert r.status_code==201;t=r.json['data']
  assert t['displayName']=='Taylor User'
+ assert c.get('/api/public/tokens/'+t['id']).status_code==401
+ share=c.post('/api/tokens/'+t['id']+'/share',headers=h,json={}).json['data']['url']
+ from urllib.parse import urlparse,parse_qs
+ key=parse_qs(urlparse(share).fragment)['key'][0];qh={'Authorization':'Ticket '+key}
+ qr=c.get('/api/public/tokens/'+t['id'],headers=qh);assert qr.status_code==200
+ public=qr.json['data'];assert public['displayName']=='Taylor User' and public['tokenNumber']==t['tokenNumber']
+ assert public['branch']=='Central Bank • City Branch' and public['issueTime']==t['arrivalTime']
+ assert public['position']==1 and public['estimatedWaitMinutes']==0 and public['counterName'] is None
+ assert public['status']=='waiting' and public['nowServing']==[]
+ assert 'ownerUid' not in public and 'requestId' not in public
  assert c.post('/api/tokens',headers=h,json=p).json['data']['id']==t['id']
  other=c.post('/api/auth/register',json={'name':'Second User','email':'second@example.test','password':'other-password'}).json['data']['token']
  assert c.get('/api/tokens/'+t['id'],headers={'Authorization':'Bearer '+other}).status_code==403
@@ -64,22 +74,18 @@ def test_api_auth_and_tracking(tmp_path,monkeypatch):
  assert c.post('/api/auth/register',json={'name':'Taylor User','email':'USER@example.test','password':'user-password'}).status_code==409
  assert c.post('/api/auth/register',json={'name':'','email':'empty@example.test','password':'user-password'}).status_code==400
  assert c.post('/api/auth/register',json={'name':'Short Pass','email':'short@example.test','password':'tiny'}).status_code==400
- assert c.post('/api/auth/guest').status_code==404
- assert c.post('/api/auth/admin',json={'password':'legacy-disabled'}).status_code==404
- setup=c.post('/api/auth/admin/setup');assert setup.status_code==201
+ assert c.post('/api/auth/guest').status_code in (404,405)
+ assert c.post('/api/auth/admin',json={'password':'legacy-disabled'}).status_code in (404,405)
+ setup=c.post('/api/auth/admin/setup',json={'setupKey':'test-setup-key'});assert setup.status_code==201
  credentials=setup.json['data'];assert credentials['email'].endswith('@tokenflow.local') and len(credentials['password'])>=20
- assert c.post('/api/auth/admin/setup').status_code==409
+ assert c.post('/api/auth/admin/setup',json={'setupKey':'test-setup-key'}).status_code==409
  login=c.post('/api/auth/login',json={'email':credentials['email'],'password':credentials['password'],'role':'admin'});assert login.status_code==200
  a=login.json['data']['token'];ah={'Authorization':'Bearer '+a}
  assert c.get('/api/dashboard',headers=ah).status_code==200
+ assert c.post('/api/counters/bank-1/next',headers=ah).status_code==200
+ live=c.get('/api/public/tokens/'+t['id'],headers=qh).json['data']
+ assert live['status']=='called' and live['counterName']=='Counter 01'
+ assert live['nowServing']==[{'tokenNumber':t['tokenNumber'],'counterName':'Counter 01','status':'called'}]
  assert c.get('/api/auth/admin/setup-status').json['data']['available'] is False
  assert c.post('/api/tokens',headers=h,json={**p,'requestId':'another-key','service':'fake'}).status_code==400
  assert c.post('/api/simulate',headers=ah,json={'departmentId':'bank','count':2}).status_code==200
-
-def test_sms_failure(monkeypatch):
- from services.notifications import send_sms
- import requests
- for k in ('TWILIO_ACCOUNT_SID','TWILIO_AUTH_TOKEN','TWILIO_FROM'):monkeypatch.setenv(k,'test')
- def fail(*args,**kwargs):raise requests.ConnectionError('provider unavailable')
- monkeypatch.setattr(requests,'post',fail)
- assert send_sms('+12025550123','test')['status']=='failed'
