@@ -67,21 +67,11 @@ function saltBytes(value) {
 	return new Uint8Array(value.match(/.{2}/g).map((byte) => parseInt(byte, 16)));
 }
 
-function saveSession(role, result) {
-	if (role === "admin") {
-		sessionStorage.setItem("tf-admin", "yes");
-		if (result.token) sessionStorage.setItem("tf-admin-token", result.token);
-		if (result.user?.uid) sessionStorage.setItem("tf-demo-admin-uid", result.user.uid);
-		sessionStorage.removeItem("tf-user");
-		// Keep customer identity available for an explicit later sign-in; never use it while admin is active.
-		return;
-	}
-	sessionStorage.setItem("tf-user", "yes");
-	if (result.token) localStorage.setItem("tf-user-token", result.token);
-	if (result.user?.uid) localStorage.setItem("tf-demo-uid", result.user.uid);
-	if (result.user?.name) localStorage.setItem("tf-user-name", result.user.name);
-	sessionStorage.removeItem("tf-admin");
-	sessionStorage.removeItem("tf-admin-token");
+// Admin sessions only; the customer guest session is separate and unaffected.
+function saveSession(result) {
+	sessionStorage.setItem("tf-admin", "yes");
+	if (result.token) sessionStorage.setItem("tf-admin-token", result.token);
+	if (result.user?.uid) sessionStorage.setItem("tf-demo-admin-uid", result.user.uid);
 }
 
 async function localAuth(path, payload) {
@@ -93,75 +83,6 @@ async function localAuth(path, payload) {
 	const result = await parseResponse(response);
 	if (!response.ok) throw requestError(response,result);
 	return result.data;
-}
-
-export async function registerUser(name, email, password) {
-	let result;
-	if (showcase || demoMode) {
-		const list = accounts();
-		if (list.some((account) => account.email === email.trim().toLowerCase()))
-			throw Error("An account with this email already exists.");
-		const user = await demoAccount(name.trim(), email, password, "customer");
-		list.push(user);
-		localStorage.setItem(DEMO_ACCOUNTS, JSON.stringify(list));
-		result = { user };
-	} else if (mode === "firebase") {
-		await firebase();
-		const credential = await authModule.createUserWithEmailAndPassword(
-			firebaseAuth,
-			email,
-			password,
-		);
-		await authModule.updateProfile(credential.user, { displayName: name.trim() });
-		result = {
-			user: {
-				uid: credential.user.uid,
-				name: name.trim(),
-				email: credential.user.email,
-				role: "customer",
-			},
-		};
-	} else {
-		result = await localAuth("/auth/register", { name, email, password });
-	}
-	saveSession("customer", result);
-	return result.user;
-}
-
-export async function loginUser(email, password) {
-	let result;
-	if (showcase || demoMode) {
-		const account = accounts().find(
-			(item) => item.email === email.trim().toLowerCase() && item.role === "customer",
-		);
-		if (!account || account.passwordHash !== (await passwordHash(password, saltBytes(account.salt))))
-			throw Error("Email or password is incorrect.");
-		result = { user: account };
-	} else if (mode === "firebase") {
-		await firebase();
-		const credential = await authModule.signInWithEmailAndPassword(
-			firebaseAuth,
-			email,
-			password,
-		);
-		const profile = await api("/me");
-		if (profile.role !== "customer") {
-			await authModule.signOut(firebaseAuth);
-			throw Error("This account does not have User access.");
-		}
-		result = {
-			user: {
-				uid: credential.user.uid,
-				name: credential.user.displayName || "",
-				email: credential.user.email,
-				role: "customer",
-			},
-		};
-	} else {
-		result = await localAuth("/auth/login", { email, password, role: "customer" });
-	}
-	saveSession("customer", result);
-	return result.user;
 }
 
 export async function loginAdmin(email, password) {
@@ -191,7 +112,7 @@ export async function loginAdmin(email, password) {
 	} else {
 		result = await localAuth("/auth/login", { email, password, role: "admin" });
 	}
-	saveSession("admin", result);
+	saveSession(result);
 	return result.user;
 }
 
@@ -210,7 +131,7 @@ export async function setupAdmin(setupKey = "") {
 	} else {
 		result = await localAuth("/auth/admin/setup", {setupKey});
 	}
-	saveSession("admin", result);
+	saveSession(result);
 	return { email: result.email, password: result.password };
 }
 
@@ -223,59 +144,93 @@ export async function adminSetupAvailable() {
 	return response.ok && result.data.available;
 }
 
-export async function logout(role = "admin") {
-	if (role === "admin") {
-		sessionStorage.removeItem("tf-admin");
-		sessionStorage.removeItem("tf-admin-token");
-		sessionStorage.removeItem("tf-demo-admin-uid");
-	} else {
-		sessionStorage.removeItem("tf-user");
-		// Keep customer identity available for an explicit later sign-in; never use it while admin is active.
-	}
+// Signs the Admin out. Customers have no sign-in: their guest session stays on this device.
+export async function logout() {
+	sessionStorage.removeItem("tf-admin");
+	sessionStorage.removeItem("tf-admin-token");
+	sessionStorage.removeItem("tf-demo-admin-uid");
 	if (mode === "firebase") {
 		await firebase();
 		await authModule.signOut(firebaseAuth);
 	}
 }
 
-async function token() {
-	if (mode === "firebase") {
-		await firebase();
-		if (!firebaseAuth.currentUser) throw Error("Sign in to continue.");
-		return firebaseAuth.currentUser.getIdToken();
+// Customers do not sign in. Each browser gets an anonymous guest session the first
+// time it needs one; the token is kept in localStorage so its tickets stay "mine".
+const GUEST_TOKEN = "tf-user-token";
+let guestPending;
+function demoCustomerUid() {
+	let uid = localStorage.getItem("tf-demo-uid");
+	if (!uid) {
+		uid = crypto.randomUUID();
+		localStorage.setItem("tf-demo-uid", uid);
 	}
-	const value =
-		sessionStorage.getItem("tf-admin-token") ||
-		localStorage.getItem("tf-user-token");
-	if (!value) throw Error("Sign in to continue.");
-	return value;
+	return uid;
+}
+async function guestToken() {
+	const existing = localStorage.getItem(GUEST_TOKEN);
+	if (existing) return existing;
+	guestPending ??= localAuth("/auth/guest", {})
+		.then((result) => {
+			localStorage.setItem(GUEST_TOKEN, result.token);
+			return result.token;
+		})
+		.finally(() => {
+			guestPending = undefined;
+		});
+	return guestPending;
 }
 
-export async function api(path, method = "GET", body) {
+async function token(role) {
+	if (mode === "firebase") {
+		await firebase();
+		if (!firebaseAuth.currentUser) {
+			if (role === "admin") throw Error("Sign in to continue.");
+			await authModule.signInAnonymously(firebaseAuth);
+		}
+		return firebaseAuth.currentUser.getIdToken();
+	}
+	if (role === "admin") {
+		const value = sessionStorage.getItem("tf-admin-token");
+		if (!value) throw Error("Sign in to continue.");
+		return value;
+	}
+	return guestToken();
+}
+
+async function request(path, method, body, role, retried = false) {
 	if (showcase || demoMode)
 		return demoRequest(
 			path,
 			method,
-			path === "/tokens" && method === "POST"
-				? { ...body, displayName: body?.displayName || localStorage.getItem("tf-user-name") || "" }
-				: body,
-			sessionStorage.getItem("tf-admin") === "yes"
+			body,
+			role === "admin"
 				? sessionStorage.getItem("tf-demo-admin-uid") || "demo-admin"
-				: localStorage.getItem("tf-demo-uid") || "demo-user",
+				: demoCustomerUid(),
 		);
 	const response = await fetch(`${apiBase}${path}`, {
 		method,
-        signal:AbortSignal.timeout(12000),
+		signal: AbortSignal.timeout(12000),
 		headers: {
 			"Content-Type": "application/json",
-			Authorization: `Bearer ${await token()}`,
+			Authorization: `Bearer ${await token(role)}`,
 		},
 		...(body ? { body: JSON.stringify(body) } : {}),
 	});
 	const result = await parseResponse(response);
-	if (!response.ok) throw requestError(response,result);
+	if (response.status === 401 && role === "customer" && mode !== "firebase" && !retried) {
+		// The guest session expired or the site secret changed: start a fresh guest session.
+		localStorage.removeItem(GUEST_TOKEN);
+		return request(path, method, body, role, true);
+	}
+	if (!response.ok) throw requestError(response, result, role);
 	return result.data;
 }
+
+// Customer-facing requests (services, booking, my tickets) — guest session.
+export const api = (path, method = "GET", body) => request(path, method, body, "customer");
+// Admin dashboard requests — requires an Admin sign-in.
+export const adminApi = (path, method = "GET", body) => request(path, method, body, "admin");
 
 export async function publicApi(path, key = "") {
 	if (showcase || demoMode) return demoRequest(path, "GET", {shareKey:key}, "public");
@@ -287,10 +242,10 @@ export async function publicApi(path, key = "") {
 
 export async function subscribe(refresh) {
 	if (mode !== "firebase") return () => {};
-	await token();
+	await token("customer");
 	const { doc, onSnapshot } = await import("firebase/firestore");
 	return onSnapshot(doc(firestore, "public_queue", "summary"), refresh, () => refresh());
 }
 
 async function parseResponse(response){try{return await response.json()}catch{throw Error('The API did not return JSON. Check VITE_API_URL and backend availability.')}}
-function requestError(response,result){const e=Error(result.message||'Request failed');e.status=response.status;if(response.status===401&&!String(result.message).includes('QR')){sessionStorage.removeItem('tf-user');sessionStorage.removeItem('tf-admin');window.dispatchEvent(new Event('tokenflow-auth-expired'))}return e}
+function requestError(response,result,role){const e=Error(result.message||'Request failed');e.status=response.status;if(response.status===401&&role==='admin'){sessionStorage.removeItem('tf-admin');sessionStorage.removeItem('tf-admin-token');window.dispatchEvent(new Event('tokenflow-auth-expired'))}return e}

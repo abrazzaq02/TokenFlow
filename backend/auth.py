@@ -1,5 +1,6 @@
 import re
 import secrets
+import time
 import uuid
 
 from flask import request
@@ -67,15 +68,25 @@ def create_admin(store):
     return user, password
 
 
-def issue(app, user):
+GUEST_MAX_AGE = 30 * 86400
+
+
+def issue(app, user, guest=False):
     info = {
         "uid": user["uid"],
         "role": user["role"],
         "displayName": user.get("name", ""),
         "departmentIds": ["*"] if user["role"] == "admin" else [],
     }
+    if guest:
+        info["guest"] = True
     token = URLSafeTimedSerializer(app.config["SECRET_KEY"]).dumps(info)
     return {"token": token, "user": user}
+
+
+def issue_guest(app):
+    """Anonymous customer session: no sign-up; the browser keeps the token for its tickets."""
+    return issue(app, {"uid": uuid.uuid4().hex, "name": "", "role": "customer"}, guest=True)
 
 
 def actor(app):
@@ -109,9 +120,13 @@ def actor(app):
             raise Problem("Your sign-in expired. Sign in again.", 401)
 
     try:
-        info = URLSafeTimedSerializer(app.config["SECRET_KEY"]).loads(
-            token, max_age=86400
+        info, issued = URLSafeTimedSerializer(app.config["SECRET_KEY"]).loads(
+            token, max_age=GUEST_MAX_AGE, return_timestamp=True
         )
+        if not info.get("guest") and time.time() - issued.timestamp() > 86400:
+            raise SignatureExpired("session expired")
+        if info.get("guest") and info.get("role") != "customer":
+            raise Problem("Sign in again with your account", 401)
         if info.get("uid") == "demo-admin" or info.get("role") not in ("admin", "customer"):
             raise Problem("Sign in again with your account", 401)
         return info

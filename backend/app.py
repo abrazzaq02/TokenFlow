@@ -7,7 +7,7 @@ from flask import Flask,request,jsonify,send_from_directory
 from flask_cors import CORS
 from dotenv import load_dotenv
 from storage import SQLiteStore,FirestoreStore
-from auth import actor,register_user,authenticate,create_admin,issue
+from auth import actor,register_user,authenticate,create_admin,issue,issue_guest
 from sharing import issue as share_link,verify as verify_share
 from services.insights import recommendations,compare
 from services.engine import Problem,mutate,summary,token_view,public_ticket as public_token_view,get,allowed,analytics
@@ -63,6 +63,10 @@ def create_app(store=None):
   try:user=register_user(db,p.get('name'),p.get('email'),p.get('password'))
   except sqlite3.IntegrityError:raise Problem('An account with this email already exists',409)
   return ok(issue(app,user)),201
+ @app.post('/api/auth/guest')
+ def guest():
+  if app.config['STORE_MODE']=='firestore':raise Problem('Use Firebase anonymous sign-in',400)
+  return ok(issue_guest(app)),201
  @app.post('/api/auth/login')
  def login():
   if app.config['STORE_MODE']=='firestore':raise Problem('Use Firebase email and password sign-in',400)

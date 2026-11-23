@@ -1,7 +1,7 @@
 // HTTP routing for the TokenFlow API — mirrors the routes of backend/app.py.
 import { Problem, mutate, summary, tokenView, publicTicket, get, allowed, analytics, hexId } from './engine.mjs';
 import { recommendations, compare } from './insights.mjs';
-import { actor, registerUser, authenticate, createAdmin, issue, shareLink, verifyShare } from './auth.mjs';
+import { actor, registerUser, authenticate, createAdmin, issue, issueGuest, shareLink, verifyShare } from './auth.mjs';
 
 const MAX_BODY = 16384;
 const SECURITY_HEADERS = { 'Cache-Control': 'no-store', 'X-Content-Type-Options': 'nosniff', 'Referrer-Policy': 'no-referrer' };
@@ -64,6 +64,8 @@ export function createApp({ store, env, shareTtl = 172800 }) {
     const user = await registerUser(store, p.name, p.email, p.password);
     return ok(issue(await secret(), user), 201);
   });
+
+  route('POST', '/api/auth/guest', async () => ok(issueGuest(await secret()), 201));
 
   route('POST', '/api/auth/login', async (req) => {
     const p = await body(req);

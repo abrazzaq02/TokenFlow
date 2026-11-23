@@ -75,7 +75,6 @@ test('auth, tickets, QR tracking and admin flow', async () => {
   assert.equal((await call('POST', '/api/auth/register', { json: { name: 'Taylor User', email: 'USER@example.test', password: 'user-password' } })).status, 409);
   assert.equal((await call('POST', '/api/auth/register', { json: { name: '', email: 'empty@example.test', password: 'user-password' } })).status, 400);
   assert.equal((await call('POST', '/api/auth/register', { json: { name: 'Short Pass', email: 'short@example.test', password: 'tiny' } })).status, 400);
-  assert.ok([404, 405].includes((await call('POST', '/api/auth/guest')).status));
 
   assert.equal((await call('GET', '/api/auth/admin/setup-status')).data.available, true);
   assert.equal((await call('POST', '/api/auth/admin/setup', { json: {} })).status, 403);
@@ -108,6 +107,27 @@ test('auth, tickets, QR tracking and admin flow', async () => {
   assert.equal((await call('GET', '/api/queue/nope')).status, 404);
   assert.equal((await call('GET', '/api/departments')).data.departments.length, 5);
   assert.equal((await call('GET', '/api/nope')).status, 404);
+});
+
+test('guest sessions book and own tickets without an account', async () => {
+  const { call } = client();
+  const g = await call('POST', '/api/auth/guest');
+  assert.equal(g.status, 201);
+  assert.equal(g.data.user.role, 'customer');
+  const h = bearer(g.data.token);
+  const me = (await call('GET', '/api/me', { headers: h })).data;
+  assert.equal(me.guest, true);
+  assert.equal(me.uid, g.data.user.uid);
+  const t = (await call('POST', '/api/tokens', { headers: h, json: { departmentId: 'bank', service: 'Cash & deposits', requestId: 'guest-request-1', displayName: 'Walk-in' } })).data;
+  assert.equal(t.displayName, 'Walk-in');
+  assert.equal((await call('GET', '/api/tokens', { headers: h })).data.length, 1);
+  assert.equal((await call('GET', '/api/tokens/' + t.id, { headers: h })).data.isOwner, true);
+  const other = bearer((await call('POST', '/api/auth/guest')).data.token);
+  assert.equal((await call('GET', '/api/tokens', { headers: other })).data.length, 0);
+  assert.equal((await call('GET', '/api/tokens/' + t.id, { headers: other })).status, 403);
+  assert.equal((await call('POST', `/api/tokens/${t.id}/cancel`, { headers: other, json: {} })).status, 403);
+  assert.equal((await call('GET', '/api/dashboard', { headers: h })).status, 403);
+  assert.equal((await call('POST', `/api/tokens/${t.id}/cancel`, { headers: h, json: {} })).data.status, 'cancelled');
 });
 
 test('QR revocation, expiry and tampering', async () => {

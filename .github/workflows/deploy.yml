@@ -30,9 +30,17 @@ jobs:
         working-directory: frontend
         run: npm install
 
+      # GitHub Pages is static hosting (no API), so it runs the browser-only demo.
+      # The full app with the live API is deployed on Netlify (see netlify.toml).
       - name: Build frontend
         working-directory: frontend
+        env:
+          VITE_APP_MODE: showcase
         run: npm run build
+
+      # Let deep links such as /TokenFlow/track/<id> load the single-page app.
+      - name: Add SPA fallback
+        run: cp frontend/dist/index.html frontend/dist/404.html
 
       - name: Upload Pages artifact
         uses: actions/upload-pages-artifact@v3

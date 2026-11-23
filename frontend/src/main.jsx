@@ -1,10 +1,12 @@
 import React,{useState,useEffect,useCallback} from 'react';
 import {createRoot} from 'react-dom/client';
-import {BrowserRouter,Routes,Route,NavLink,Link,useNavigate,useParams,useSearchParams} from 'react-router-dom';
+import {BrowserRouter,Routes,Route,NavLink,Link,Navigate,useNavigate,useParams,useSearchParams} from 'react-router-dom';
 import {ArrowUpRight,ArrowRight,LayoutGrid,Ticket,ChartNoAxesCombined,Settings,Landmark,HeartPulse,ShieldCheck,IdCard,Zap,Clock,Users,Check,ChevronRight,Search,Bell,Plus,Download,LogOut,Menu,X,CheckCircle2,Activity,ScanLine,RefreshCw,SlidersHorizontal,Play,Square,Copy,MapPin,ExternalLink} from 'lucide-react';
 import {ResponsiveContainer,AreaChart,Area,XAxis,YAxis,Tooltip,CartesianGrid,BarChart,Bar} from 'recharts';
 import QRCode from 'qrcode';
-import {api,publicApi,showcase,demoMode,mode,registerUser,loginUser,loginAdmin,setupAdmin,adminSetupAvailable,logout,subscribe} from './api';
+import {api,adminApi,publicApi,showcase,demoMode,mode,loginAdmin,setupAdmin,adminSetupAvailable,logout,subscribe} from './api';
+// Vite base ('/' on Netlify, '/TokenFlow/' on GitHub Pages) — used for the router and static assets.
+const BASE=import.meta.env.BASE_URL;
 import './styles.css';
 import {useData} from './useLiveData';
 import {NowServing,Recommendations,Comparison,useTicketAlerts} from './queue-ui';
@@ -24,11 +26,11 @@ function App() {
     setTimeout(() => setToast(""), 4500);
   };
   return (
-    <BrowserRouter>
+    <BrowserRouter basename={BASE.replace(/\/$/,'')||'/'}>
       <div className="app">
         <aside className={mobile ? "sidebar show" : "sidebar"}>
-          <Link to="/home" className="brand" onClick={() => setMobile(false)}>
-            <img src="/logo.svg" />
+          <Link to="/" className="brand" onClick={() => setMobile(false)}>
+            <img src={`${BASE}logo.svg`} alt="" />
             Token<span>Flow</span>
             <span className="brand-dot">®</span>
           </Link>
@@ -43,7 +45,7 @@ function App() {
           </div>
           <nav>
             <div className="nav-label">CUSTOMER PORTAL</div>
-            <NavLink to="/home" end onClick={() => setMobile(false)}>
+            <NavLink to="/" end onClick={() => setMobile(false)}>
               <LayoutGrid size={19} />Overview
               <span className="nav-bubble">5</span>
             </NavLink>
@@ -75,7 +77,7 @@ function App() {
                 <br />
                 Go live your day.
               </p>
-              <Link to="/home#services">
+              <Link to="/#services">
                 Find a service <ArrowUpRight size={16} />
               </Link>
             </div>
@@ -107,13 +109,7 @@ function App() {
             <div className="header-right">
               <span className={`mode${demoMode ? " demo-mode" : ""}`}>
                 <span className="live-dot" />
-                {demoMode
-                  ? "Demo Mode"
-                  : showcase
-                    ? "Demo playground"
-                    : mode === "firebase"
-                      ? "Live services"
-                      : "Local API demo"}
+                {demoMode ? "Demo Mode" : showcase ? "Demo playground" : "Live services"}
               </span>
               <Link
                 className="icon-button"
@@ -127,9 +123,9 @@ function App() {
           </header>
           <div className="page">
             <Routes>
-              <Route path="/" element={<Access notify={notify} />} />
-              <Route path="/home" element={<CustomerOnly notify={notify}><Home notify={notify} /></CustomerOnly>} />
-              <Route path="/tickets" element={<CustomerOnly notify={notify}><Tickets notify={notify} /></CustomerOnly>} />
+              <Route path="/" element={<Home notify={notify} />} />
+              <Route path="/home" element={<Navigate to={`/${location.search}${location.hash}`} replace />} />
+              <Route path="/tickets" element={<Tickets notify={notify} />} />
               <Route path="/track/:id" element={<Track notify={notify} />} />
               <Route path="/admin" element={<Admin notify={notify} />} />
               <Route
@@ -145,7 +141,7 @@ function App() {
                 element={
                   <div className="empty">
                     <h1>Page not found</h1>
-                    <Link to="/">Back to account options</Link>
+                    <Link to="/">Back to services</Link>
                   </div>
                 }
               />
@@ -169,91 +165,6 @@ function App() {
     </BrowserRouter>
   );
 }
-function CustomerOnly({ children, notify }) {
-  const signedIn =
-    demoMode || sessionStorage.getItem("tf-user") === "yes";
-  const [,render]=useState(0);useEffect(()=>{const expired=()=>render(n=>n+1);addEventListener("tokenflow-auth-expired",expired);return()=>removeEventListener("tokenflow-auth-expired",expired)},[]);
-  return signedIn ? children : <Access notify={notify} />;
-}
-
-function Access({ notify }) {
-  const [creating, setCreating] = useState(true);
-  const [name, setName] = useState("");
-  const [email, setEmail] = useState("");
-  const [password, setPassword] = useState("");
-  const [error, setError] = useState("");
-  const [busy, setBusy] = useState(false);
-  const navigate = useNavigate();
-  useEffect(() => {
-    if (
-      sessionStorage.getItem("tf-user") === "yes"
-    ) {
-      navigate(`/home${location.search}`, { replace: true });
-    }
-  }, [navigate]);
-
-  async function submit(e) {
-    e.preventDefault();
-    setBusy(true);
-    setError("");
-    try {
-      if (creating) await registerUser(name, email, password);
-      else await loginUser(email, password);
-      notify(creating ? "Your account is ready." : "Welcome back.");
-      navigate(`/home${location.search}`);
-    } catch (e) {
-      setError(e.message);
-    } finally {
-      setBusy(false);
-    }
-  }
-
-  return (
-    <>
-      <PageTitle
-        eyebrow="WELCOME TO TOKENFLOW"
-        title="Choose your portal."
-        subtitle="Sign in or create an account to continue."
-      />
-      <div className="portal-choices">
-        <section className="portal-choice">
-          <span className="service-icon purple"><Users /></span>
-          <h2>User</h2>
-          <p>Create an account to save tickets and follow your queue.</p>
-          <div className="portal-actions">
-            <Button kind="primary" onClick={() => { setCreating(true); setError(""); }}>
-              Create account
-            </Button>
-            <Button kind="soft" onClick={() => { setCreating(false); setError(""); }}>
-              Log in
-            </Button>
-          </div>
-        </section>
-        <section className="portal-choice admin-choice">
-          <span className="service-icon green"><ShieldCheck /></span>
-          <h2>Admin</h2>
-          <p>Sign in to manage counters, service queues, and analytics.</p>
-          <Link className="btn dark" to="/admin">Admin login or account setup <ArrowRight size={17}/></Link>
-        </section>
-      </div>
-      <section className="login-card user-login-card">
-        <h2>{creating ? "Create your User account" : "Log in as User"}</h2>
-        <div className="auth-switch" role="group" aria-label="User account action">
-          <button type="button" className={creating ? "active" : ""} onClick={() => { setCreating(true); setError(""); }}>Create account</button>
-          <button type="button" className={!creating ? "active" : ""} onClick={() => { setCreating(false); setError(""); }}>Log in</button>
-        </div>
-        <form onSubmit={submit}>
-          {creating && <label>Name<input autoComplete="name" required maxLength={60} value={name} onChange={(e) => setName(e.target.value)} /></label>}
-          <label>Email<input type="email" autoComplete="email" required maxLength={254} value={email} onChange={(e) => setEmail(e.target.value)} /></label>
-          <label>Password<input type="password" autoComplete={creating ? "new-password" : "current-password"} required minLength={8} maxLength={256} value={password} onChange={(e) => setPassword(e.target.value)} /></label>
-          {error && <ErrorBox text={error} />}
-          <Button kind="primary full" disabled={busy}>{busy ? "Please wait…" : creating ? "Create User account" : "Log in as User"}<ArrowRight size={17}/></Button>
-        </form>
-      </section>
-    </>
-  );
-}
-
 function Home({ notify }) {
   const { data, error, refresh } = useData(() => api("/departments"));
   const mine = useData(() => api("/tokens"));
@@ -311,7 +222,7 @@ function Home({ notify }) {
           <div className="floating-circle">✦</div>
           <div className="hero-ticket">
             <div className="mini-brand">
-              <img src="/logo.svg" /> TokenFlow <span>↗</span>
+              <img src={`${BASE}logo.svg`} /> TokenFlow <span>↗</span>
             </div>
             <span className="ticket-caption">MORE LIFE. LESS LINE.</span>
             <div className="hero-ticket-number">
@@ -521,7 +432,7 @@ function Home({ notify }) {
 }
 function Stat({label,value,icon:C,detail}){return <div className="stat"><span className="stat-icon"><C size={18}/></span><span className="stat-label">{label}</span><strong>{value}</strong><small>{detail}</small></div>}
 function ErrorBox({text}){return <div className="error" role="alert">{text}</div>}
-function Booking({department:d,onClose,notify}){const [service,setService]=useState(d.services[0]),[name,setName]=useState(''),[busy,setBusy]=useState(false),[error,setError]=useState('');const [key]=useState(()=>crypto.randomUUID());const navigate=useNavigate();async function submit(e){e.preventDefault();setBusy(true);try{const t=await api('/tokens','POST',{departmentId:d.id,service,displayName:name,requestId:key});notify('Your spot is saved. You’re good to go!');onClose();navigate(`/track/${t.id}`)}catch(e){setError(e.message)}finally{setBusy(false)}}return <div className="modal-backdrop" onClick={onClose}><section role="dialog" aria-modal="true" aria-labelledby="booking-title" className="modal" onClick={e=>e.stopPropagation()}><button className="close icon-button" onClick={onClose} aria-label="Close"><X/></button><span className={`service-icon ${colors[d.id]}`}><Icon type={d.id}/></span><h2 id="booking-title">Save your spot.</h2><p>{d.name} · {d.branch}</p><form onSubmit={submit}><label>Service<select value={service} onChange={e=>setService(e.target.value)}>{d.services.map(s=><option key={s}>{s}</option>)}</select></label><label>Your name <span>(optional)</span><input autoFocus maxLength={60} value={name} onChange={e=>setName(e.target.value)} placeholder="What should we call you?"/></label><div className="booking-info"><Clock size={19}/><div>Estimated queue wait: <strong>{moneyTime(d.estimatedWait)}</strong><small>Estimates change as customers are served.</small></div></div>{error&&<ErrorBox text={error}/>}<Button kind="primary full" disabled={busy}>{busy?'Saving your spot…':'Generate my ticket'}<ArrowRight size={18}/></Button></form><div className="branch-qr"><QR value={`${import.meta.env.VITE_PUBLIC_ORIGIN||location.origin}/?service=${d.id}`} size={65}/><span>Branch check-in QR<small>Scan to open this service.</small></span></div></section></div>}
+function Booking({department:d,onClose,notify}){const [service,setService]=useState(d.services[0]),[name,setName]=useState(''),[busy,setBusy]=useState(false),[error,setError]=useState('');const [key]=useState(()=>crypto.randomUUID());const navigate=useNavigate();async function submit(e){e.preventDefault();setBusy(true);try{const t=await api('/tokens','POST',{departmentId:d.id,service,displayName:name,requestId:key});notify('Your spot is saved. You’re good to go!');onClose();navigate(`/track/${t.id}`)}catch(e){setError(e.message)}finally{setBusy(false)}}return <div className="modal-backdrop" onClick={onClose}><section role="dialog" aria-modal="true" aria-labelledby="booking-title" className="modal" onClick={e=>e.stopPropagation()}><button className="close icon-button" onClick={onClose} aria-label="Close"><X/></button><span className={`service-icon ${colors[d.id]}`}><Icon type={d.id}/></span><h2 id="booking-title">Save your spot.</h2><p>{d.name} · {d.branch}</p><form onSubmit={submit}><label>Service<select value={service} onChange={e=>setService(e.target.value)}>{d.services.map(s=><option key={s}>{s}</option>)}</select></label><label>Your name <span>(optional)</span><input autoFocus maxLength={60} value={name} onChange={e=>setName(e.target.value)} placeholder="What should we call you?"/></label><div className="booking-info"><Clock size={19}/><div>Estimated queue wait: <strong>{moneyTime(d.estimatedWait)}</strong><small>Estimates change as customers are served.</small></div></div>{error&&<ErrorBox text={error}/>}<Button kind="primary full" disabled={busy}>{busy?'Saving your spot…':'Generate my ticket'}<ArrowRight size={18}/></Button></form><div className="branch-qr"><QR value={`${import.meta.env.VITE_PUBLIC_ORIGIN||location.origin+BASE.replace(/\/$/,'')}/?service=${d.id}`} size={65}/><span>Branch check-in QR<small>Scan to open this service.</small></span></div></section></div>}
 function Tickets({notify}){const {data,error,refresh}=useData(()=>api('/tokens'));return <><PageTitle eyebrow="YOUR POCKET-SIZED QUEUE" title="My tickets" subtitle="Every visit. Every update. Right here."/><div className="tickets-grid">{data?.slice().reverse().map(t=><Link key={t.id} to={`/track/${t.id}`} className="ticket-list-card"><span className={`badge ${t.status}`}>{pretty(t.status)}</span><h2>{t.tokenNumber}</h2><p>{t.service}</p><div><Clock size={15}/>{moneyTime(t.estimatedWaitMinutes)}<ArrowUpRight size={20}/></div></Link>)}</div>{error&&<ErrorBox text={error}/>} {data?.length===0&&<div className="empty"><Ticket size={40}/><h2>No tickets. No worries.</h2><p>Your first saved spot is one click away.</p><Link className="btn primary" to="/">Explore services <ArrowRight size={17}/></Link></div>}</>}
 function Track({notify}){
  const {id}=useParams();const key=new URLSearchParams(location.hash.slice(1)).get('key')||'';
@@ -533,7 +444,7 @@ function Track({notify}){
  async function cancel(){if(!confirm('Cancel this ticket and release your place?'))return;setBusy(true);try{await api(`/tokens/${id}/cancel`,'POST',{});await refresh();notify('Ticket cancelled.')}catch(e){notify(e.message)}finally{setBusy(false)}}
  async function renew(){setBusy(true);try{await api(`/tokens/${id}/revoke-share`,'POST',{});const result=await api(`/tokens/${id}/share`,'POST',{});setShare(result.url);notify('New QR ready. Previous QR links no longer work.')}catch(e){notify(e.message)}finally{setBusy(false)}}
  async function permit(){if(!('Notification' in window))return notify('Use the in-app alerts on this browser.');try{const p=await Notification.requestPermission();notify(p==='granted'?'Browser alerts enabled while TokenFlow is open.':'In-app alerts remain available.')}catch{notify('Browser permission is unavailable. In-app alerts remain active.')}}
- return <><PageTitle eyebrow="YOUR DIGITAL TICKET" title="Go live your day." subtitle="Your place and progress, in one view."/>{error&&<div className="error" role="alert">{t?'Connection interrupted. The ticket below may be outdated. ':''}{error}{!t&&<p><Link to="/">Sign in as the ticket owner to get a new QR.</Link></p>}</div>}{!t&&!error&&<div className="empty">Loading your ticket…</div>}{t&&<div className="track-layout"><div className="real-ticket"><div className="real-ticket-head"><div className="brand"><img src="/logo.svg" alt="TokenFlow"/>TokenFlow</div><span className={`badge ${t.status}`}>{pretty(t.status)}</span></div><span className="eyebrow">{t.category}</span><h2>{t.tokenNumber}</h2><h3>{t.service}</h3><p><strong>{t.displayName||'Guest visitor'}</strong> · {t.branch}</p><p>Issued {fmt(t.issueTime)} · {t.timezone||'Asia/Karachi'}</p><div className="ticket-dashes"/><div className="track-stats"><div><span>QUEUE POSITION</span><strong>{t.status==='waiting'?`#${t.position}`:['called','serving'].includes(t.status)?'Your turn':'—'}</strong>{t.status==='waiting'&&<small>{t.peopleAhead} people ahead</small>}</div><div><span>ESTIMATED WAIT</span><strong>{t.status==='waiting'?moneyTime(t.estimatedWaitMinutes):'—'}</strong></div></div><div className={`ticket-instruction ${t.status}`} role="status"><Bell size={20}/><strong>{t.message}</strong></div>{t.estimatedTurnTime&&<p className="estimated-turn">Approximate turn: <strong>{fmt(t.estimatedTurnTime)}</strong><br/><small>This is an estimate, not a fixed appointment.</small></p>}<NowServing items={t.nowServing||[]} branch={t.branch}/>{t.branchInstructions&&<div className="branch-instructions"><strong>Before your visit</strong><p>{t.branchInstructions}</p></div>}<div className="qr-section">{share?<QR value={share} size={180}/>:<div className="muted">{shareError||'Preparing your QR…'}</div>}<div><strong>Scan. Open. See your ticket.</strong><p>{showcase||demoMode?'Browser-only simulated data. Use connected API mode to share queue updates across devices.':'Scan with your camera, then tap the link. It opens these live details without a login.'}</p><small>Read-only link · Expires after 48 hours · In-app alerts active</small></div></div>{share&&<p className="qr-link"><a href={share} target="_blank" rel="noreferrer">Open the same link on another device <ExternalLink size={13}/></a></p>}{share&&/^https?:\/\/(localhost|127.0.0.1)(:|\/)/.test(share)&&<div className="error">This QR uses localhost and cannot open on another phone. Run <code>python run_demo.py</code> from the project root and use the printed LAN address, or configure PUBLIC_ORIGIN.</div>}<div className="ticket-actions"><Button kind="primary" onClick={()=>window.print()}><Download size={17}/> Print / save PDF</Button><Button kind="soft" disabled={!share} onClick={async()=>{try{await navigator.clipboard.writeText(share);notify('Tracking link copied.')}catch{prompt('Copy your tracking link',share)}}}><Copy size={17}/> Copy link</Button>{owns&&<Button kind="soft" disabled={busy} onClick={renew}>Replace QR link</Button>}</div><p className="connection-state"><span className={error?'':'live-dot'}/>{error?'Connection interrupted':`Updated ${updatedAt?new Date(updatedAt).toLocaleTimeString():''} · refreshes every 3 seconds`}</p></div><div><div className="how-card"><Bell className="purple-text" size={30}/><h2>We’ll give you a heads-up.</h2><p>Get an alert when three or fewer people are ahead, and another when your token is called. Keep TokenFlow open.</p><Button kind="dark full" onClick={permit}>Enable browser alerts <Bell size={16}/></Button></div><div className="track-note"><Clock size={20}/><p>Service times vary. Follow the live call and counter instructions. Keep your QR private: anyone with the link can view this ticket’s limited details.</p></div>{owns&&t.status==='waiting'&&<Button kind="danger full" onClick={cancel} disabled={busy}>Cancel my ticket</Button>}{owns&&<Link className="back-link" to="/tickets">My tickets <ArrowRight size={16}/></Link>}</div></div>}</>;
+ return <><PageTitle eyebrow="YOUR DIGITAL TICKET" title="Go live your day." subtitle="Your place and progress, in one view."/>{error&&<div className="error" role="alert">{t?'Connection interrupted. The ticket below may be outdated. ':''}{error}{!t&&<p><Link to="/">Open TokenFlow on the device that booked this ticket to get a new QR.</Link></p>}</div>}{!t&&!error&&<div className="empty">Loading your ticket…</div>}{t&&<div className="track-layout"><div className="real-ticket"><div className="real-ticket-head"><div className="brand"><img src={`${BASE}logo.svg`} alt="TokenFlow"/>TokenFlow</div><span className={`badge ${t.status}`}>{pretty(t.status)}</span></div><span className="eyebrow">{t.category}</span><h2>{t.tokenNumber}</h2><h3>{t.service}</h3><p><strong>{t.displayName||'Guest visitor'}</strong> · {t.branch}</p><p>Issued {fmt(t.issueTime)} · {t.timezone||'Asia/Karachi'}</p><div className="ticket-dashes"/><div className="track-stats"><div><span>QUEUE POSITION</span><strong>{t.status==='waiting'?`#${t.position}`:['called','serving'].includes(t.status)?'Your turn':'—'}</strong>{t.status==='waiting'&&<small>{t.peopleAhead} people ahead</small>}</div><div><span>ESTIMATED WAIT</span><strong>{t.status==='waiting'?moneyTime(t.estimatedWaitMinutes):'—'}</strong></div></div><div className={`ticket-instruction ${t.status}`} role="status"><Bell size={20}/><strong>{t.message}</strong></div>{t.estimatedTurnTime&&<p className="estimated-turn">Approximate turn: <strong>{fmt(t.estimatedTurnTime)}</strong><br/><small>This is an estimate, not a fixed appointment.</small></p>}<NowServing items={t.nowServing||[]} branch={t.branch}/>{t.branchInstructions&&<div className="branch-instructions"><strong>Before your visit</strong><p>{t.branchInstructions}</p></div>}<div className="qr-section">{share?<QR value={share} size={180}/>:<div className="muted">{shareError||'Preparing your QR…'}</div>}<div><strong>Scan. Open. See your ticket.</strong><p>{showcase||demoMode?'Browser-only simulated data. Use connected API mode to share queue updates across devices.':'Scan with your camera, then tap the link. It opens these live details without a login.'}</p><small>Read-only link · Expires after 48 hours · In-app alerts active</small></div></div>{share&&<p className="qr-link"><a href={share} target="_blank" rel="noreferrer">Open the same link on another device <ExternalLink size={13}/></a></p>}{share&&/^https?:\/\/(localhost|127.0.0.1)(:|\/)/.test(share)&&<div className="error">This QR uses localhost and cannot open on another phone. Run <code>python run_demo.py</code> from the project root and use the printed LAN address, or configure PUBLIC_ORIGIN.</div>}<div className="ticket-actions"><Button kind="primary" onClick={()=>window.print()}><Download size={17}/> Print / save PDF</Button><Button kind="soft" disabled={!share} onClick={async()=>{try{await navigator.clipboard.writeText(share);notify('Tracking link copied.')}catch{prompt('Copy your tracking link',share)}}}><Copy size={17}/> Copy link</Button>{owns&&<Button kind="soft" disabled={busy} onClick={renew}>Replace QR link</Button>}</div><p className="connection-state"><span className={error?'':'live-dot'}/>{error?'Connection interrupted':`Updated ${updatedAt?new Date(updatedAt).toLocaleTimeString():''} · refreshes every 3 seconds`}</p></div><div><div className="how-card"><Bell className="purple-text" size={30}/><h2>We’ll give you a heads-up.</h2><p>Get an alert when three or fewer people are ahead, and another when your token is called. Keep TokenFlow open.</p><Button kind="dark full" onClick={permit}>Enable browser alerts <Bell size={16}/></Button></div><div className="track-note"><Clock size={20}/><p>Service times vary. Follow the live call and counter instructions. Keep your QR private: anyone with the link can view this ticket’s limited details.</p></div>{owns&&t.status==='waiting'&&<Button kind="danger full" onClick={cancel} disabled={busy}>Cancel my ticket</Button>}{owns&&<Link className="back-link" to="/tickets">My tickets <ArrowRight size={16}/></Link>}</div></div>}</>;
 }
 
 function PageTitle({ eyebrow, title, subtitle, children }) {
@@ -580,7 +491,7 @@ function Admin({ notify, analyticsOnly = false }) {
   async function createAdmin() {
     setBusy(true);
     try {
-      const key=showcase?"":prompt("Enter the setup key printed in the server terminal");
+      const key=showcase?"":prompt("Enter the admin setup key (ADMIN_SETUP_KEY in your site settings, or printed in the server terminal)");
       if(key===null)return;
       setCredentials(await setupAdmin(key));
       setAuthorized(true);
@@ -660,14 +571,14 @@ function Admin({ notify, analyticsOnly = false }) {
 }
 function Dashboard({ notify, analyticsOnly, signout }) {
   useEffect(()=>{const expired=()=>signout();addEventListener("tokenflow-auth-expired",expired);return()=>removeEventListener("tokenflow-auth-expired",expired)},[signout]);
-  const { data: s, error, refresh } = useData(() => api("/dashboard"));
+  const { data: s, error, refresh } = useData(() => adminApi("/dashboard"));
   const [dept, setDept] = useState("bank"),
     [busy, setBusy] = useState(false),
     [filter, setFilter] = useState("active");
   async function action(path, p = {}) {
     setBusy(true);
     try {
-      await api(path, "POST", p);
+      await adminApi(path, "POST", p);
       await refresh();
       notify("Queue updated.");
     } catch (e) {
@@ -1064,14 +975,14 @@ function Dashboard({ notify, analyticsOnly, signout }) {
 }
 function SettingsPage({ notify }) {
   const navigate = useNavigate();
-  const accountRole = sessionStorage.getItem("tf-admin") === "yes" ? "admin" : "customer";
+  const isAdmin = sessionStorage.getItem("tf-admin") === "yes";
   return (
     <>
       <PageTitle
         eyebrow="MAKE IT YOURS"
         title="Small settings. Better flow."
-        subtitle="Your account preferences and demo tools."
-      ><Button kind="soft" onClick={async () => { await logout(accountRole); navigate("/"); }}><LogOut size={16}/> Sign out</Button></PageTitle>
+        subtitle="Your preferences and demo tools."
+      >{isAdmin && <Button kind="soft" onClick={async () => { await logout(); navigate("/"); }}><LogOut size={16}/> Sign out of Admin</Button>}</PageTitle>
       <div className="settings-card">
         <Bell />
         <div>
@@ -1097,14 +1008,12 @@ function SettingsPage({ notify }) {
           <h3>
             {showcase || demoMode
               ? "Browser demo mode"
-              : mode === "firebase"
-                ? "Firebase mode"
-                : "Local backend mode"}
+              : "Live backend"}
           </h3>
           <p>
             {showcase || demoMode
               ? "Synthetic data stays in this browser. No real appointments are booked."
-              : "Your requests are handled by the configured Flask backend."}
+              : "Your tickets are saved by the TokenFlow API on this device. No sign-up needed."}
           </p>
         </div>
         <span className="badge completed">Active</span>
