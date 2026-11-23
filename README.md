@@ -87,6 +87,34 @@ npm install
 
 The production build is generated in the configured output directory.
 
+## ☁️ Deploying to Netlify (frontend + API)
+
+The repository deploys to Netlify as one site, with no separate server or database:
+
+| Part | Where | Notes |
+|---|---|---|
+| React app | `frontend/` → published from `frontend/dist` | Built with `VITE_BASE=/` (set in `netlify.toml`) |
+| API | `netlify/functions/api.mjs` → served at `/api/*` | Node port of the Flask API; same routes and JSON responses |
+| Data | Netlify Blobs store `tokenflow` | Atomic compare-and-swap writes; created automatically |
+
+The Flask API in `backend/` is unchanged and still works for local LAN demos (`run_demo.py`), Render (`render.yaml`) and Firestore mode.
+
+**Environment variables** (Netlify → Site configuration → Environment variables), see `.env.example`:
+
+- `SECRET_KEY`: long random string that signs sessions and QR links (recommended)
+- `ADMIN_SETUP_KEY`: one-time key for creating the first admin from the Admin page (remove it afterwards)
+- `SIMULATION_ENABLED`: `true`/`false` (default `true`)
+- `PUBLIC_ORIGIN`: optional origin for QR links (defaults to the site URL)
+
+**Local development with Netlify:**
+
+```bash
+npm install && npm --prefix frontend install
+cp .env.example .env   # fill in values
+npx netlify dev        # http://localhost:8888, frontend + /api function + local Blobs
+npm test               # API/engine tests for the Netlify function
+```
+
 ## 🚧 Challenges Faced
 
 - Configuring frontend deployment for a GitHub Pages project URL.

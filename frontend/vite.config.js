@@ -3,8 +3,9 @@ import { defineConfig } from 'vite';
 import react from '@vitejs/plugin-react';
 import tailwindcss from '@tailwindcss/postcss';
 
+// GitHub Pages serves the app under /TokenFlow/; Netlify (netlify.toml sets VITE_BASE=/) serves it at the root.
 export default defineConfig({
-  base: '/TokenFlow/',
+  base: process.env.VITE_BASE || '/TokenFlow/',
   plugins: [react()],
   css: {
     postcss: {
