@@ -10,7 +10,7 @@ Digital queues for banks, hospitals, police stations and public-service branches
   - `[Aaisha kalwar]`
   - `[Abdul Razaque]`
   - `[Bibi Rahmeen Mahzeb`
-  - `[Add more members if needed]`
+ 
 
 ## 🎯 Selected Problem
 
