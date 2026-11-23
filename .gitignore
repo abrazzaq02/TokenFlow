@@ -11,3 +11,7 @@ dist/
 .session-secret
 *.sqlite*
 dist-showcase/
+
+# Local Netlify folder
+.netlify
+.netlify/

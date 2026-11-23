@@ -1,0 +1,15 @@
+{
+  "name": "tokenflow-netlify",
+  "private": true,
+  "type": "module",
+  "description": "Netlify Functions API for TokenFlow (frontend lives in ./frontend, Flask reference API in ./backend)",
+  "scripts": {
+    "build": "npm --prefix frontend install && npm --prefix frontend run build",
+    "test": "node --test netlify/tests/*.test.mjs",
+    "dev": "netlify dev"
+  },
+  "engines": { "node": ">=20" },
+  "dependencies": {
+    "@netlify/blobs": "11.1.5"
+  }
+}
