@@ -30,8 +30,8 @@ The platform aims to help users discover services, manage tokens, and interact w
 
 ### Key Features
 
-- **User Authentication:** User registration and login.
-- **Admin Access:** Dedicated administrative interface for managing the platform.
+- **No sign-up for customers:** Visitors open the site, pick a service and get a ticket. Each browser keeps an anonymous session so its tickets stay private.
+- **Admin Access:** Admin login for managing counters, queues and analytics.
 - **Find a Service:** A flow for discovering and accessing available services.
 - **Token Management:** Digital token and queue workflow.
 - **Demo Mode:** Demonstration functionality for exploring the application.
@@ -136,8 +136,9 @@ All AI-assisted code and third-party libraries should be reviewed and tested bef
 **GitHub Repository:**  
 https://github.com/abrazzaq02/TokenFlow
 
-**Live Demo:**  
-https://abrazzaq02.github.io/TokenFlow/
+**Live Demo (browser-only demo on GitHub Pages):**  
+https://abrazzaq02.github.io/TokenFlow/  
+The full app with the live API runs on Netlify; see "Deploying to Netlify" above.
 
 *The live demo link is subject to successful deployment and correct GitHub Pages configuration.*
 

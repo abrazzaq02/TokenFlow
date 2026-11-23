@@ -74,7 +74,11 @@ def test_api_auth_and_tracking(tmp_path,monkeypatch):
  assert c.post('/api/auth/register',json={'name':'Taylor User','email':'USER@example.test','password':'user-password'}).status_code==409
  assert c.post('/api/auth/register',json={'name':'','email':'empty@example.test','password':'user-password'}).status_code==400
  assert c.post('/api/auth/register',json={'name':'Short Pass','email':'short@example.test','password':'tiny'}).status_code==400
- assert c.post('/api/auth/guest').status_code in (404,405)
+ g=c.post('/api/auth/guest');assert g.status_code==201;gh={'Authorization':'Bearer '+g.json['data']['token']}
+ assert c.get('/api/me',headers=gh).json['data']['guest'] is True
+ gt=c.post('/api/tokens',headers=gh,json={**p,'requestId':'guest-request-1','displayName':'Walk-in'});assert gt.status_code==201 and gt.json['data']['displayName']=='Walk-in'
+ assert [x['id'] for x in c.get('/api/tokens',headers=gh).json['data']]==[gt.json['data']['id']]
+ assert c.get('/api/tokens/'+t['id'],headers=gh).status_code==403 and c.get('/api/dashboard',headers=gh).status_code==403
  assert c.post('/api/auth/admin',json={'password':'legacy-disabled'}).status_code in (404,405)
  setup=c.post('/api/auth/admin/setup',json={'setupKey':'test-setup-key'});assert setup.status_code==201
  credentials=setup.json['data'];assert credentials['email'].endswith('@tokenflow.local') and len(credentials['password'])>=20

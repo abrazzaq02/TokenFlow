@@ -7,6 +7,7 @@ import { Problem, hexId, nowSeconds } from './engine.mjs';
 const scrypt = promisify(scryptCb);
 const EMAIL_PATTERN = /^[^@\s]+@[^@\s]+\.[^@\s]+$/;
 export const SESSION_MAX_AGE = 86400;
+export const GUEST_MAX_AGE = 30 * 86400; // anonymous customers keep their device session for 30 days
 export const SHARE_SALT = 'tokenflow-readonly-ticket-v1';
 const SESSION_SALT = 'tokenflow-session-v1';
 
@@ -88,9 +89,16 @@ export async function createAdmin(store) {
   return { user, password };
 }
 
-export function issue(secret, user) {
+export function issue(secret, user, { guest = false } = {}) {
   const info = { uid: user.uid, role: user.role, displayName: user.name || '', departmentIds: user.role === 'admin' ? ['*'] : [] };
+  if (guest) info.guest = true;
+  info.exp = Math.floor(nowSeconds()) + (guest ? GUEST_MAX_AGE : SESSION_MAX_AGE);
   return { token: sign(secret, SESSION_SALT, info), user };
+}
+
+// Anonymous customer session: no sign-up, the browser keeps the token for its tickets.
+export function issueGuest(secret) {
+  return issue(secret, { uid: hexId(), name: '', role: 'customer' }, { guest: true });
 }
 
 export function actor(secret, request) {
@@ -98,10 +106,12 @@ export function actor(secret, request) {
   if (!header.startsWith('Bearer ')) throw new Problem('Sign in to continue', 401);
   let info;
   try {
-    info = unsign(secret, SESSION_SALT, header.slice(7), SESSION_MAX_AGE);
+    info = unsign(secret, SESSION_SALT, header.slice(7), GUEST_MAX_AGE);
+    if (!(info?.exp > nowSeconds())) throw new SignatureExpired();
   } catch {
     throw new Problem('Your session expired. Sign in again.', 401);
   }
+  if (info.guest && info.role !== 'customer') throw new Problem('Sign in again with your account', 401);
   if (!info || info.uid === 'demo-admin' || !['admin', 'customer'].includes(info.role)) throw new Problem('Sign in again with your account', 401);
   return info;
 }
