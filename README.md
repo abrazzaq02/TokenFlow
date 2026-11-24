@@ -1,6 +1,6 @@
 # TokenFlow
 
-Digital queues for banks, hospitals, police stations and public-service branches. The existing visual design and logo are retained.
+
 # TokenFlow — Smart Token & Queue Management System
 # Live https://token-floww.netlify.app
 ## 👥 Team Information
@@ -9,7 +9,7 @@ Digital queues for banks, hospitals, police stations and public-service branches
 - **Team Members:**
   - `[Aaisha kalwar]`
   - `[Abdul Razaque]`
-  - `[Bibi Rahmeen Mahzeb`
+  - `[Bibi Rahmeen Mahzeb]`
  
 
 ## 🎯 Selected Problem
